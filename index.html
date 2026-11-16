@@ -33,6 +33,13 @@ header small{display:block;font-size:10.5px;color:#C9D3E0;font-weight:400}
 #modeBar{position:absolute;top:10px;right:10px;left:62px;background:var(--navy);color:#fff;border-radius:8px;padding:8px 10px;font-size:13px;display:none;box-shadow:0 2px 8px #0003}
 #modeBar .row{display:flex;gap:6px;margin-top:7px}
 #modeBar button{flex:1;border:0;border-radius:6px;padding:7px 4px;font-size:13px;font-weight:700;background:#fff;color:var(--navy);font-family:inherit}
+#jv{position:absolute;top:10px;right:10px;width:140px;height:150px;border-radius:10px;border:2px solid #fff;box-shadow:0 2px 10px #0004;display:none;background:#EEF1F4}
+#then{font-size:12.5px;font-weight:700;color:var(--slate);margin-top:2px}
+.chips{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0}
+.chips button{border:1px solid var(--line);background:var(--bg);border-radius:16px;padding:6px 10px;font-size:13px;font-weight:700;color:var(--navy);font-family:inherit}
+.res{display:flex;align-items:center;gap:8px;cursor:pointer}.res .rb{flex:1;min-width:0}.res .rt{font-weight:700;font-size:14px}.res .rs{font-size:11.5px;color:var(--mute);margin-top:1px}
+.res .sv{border:0;background:none;font-size:18px;padding:4px}
+details summary{font-size:13px;font-weight:700;color:var(--navy);margin-top:12px;cursor:pointer}
 #busy{position:absolute;inset:0;background:#ffffffb0;display:none;align-items:center;justify-content:center;font-weight:700;color:var(--navy);font-size:15px}
 #panel{background:#fff;border-top:4px solid var(--navy);padding:10px 12px;padding-bottom:max(10px,env(safe-area-inset-bottom));flex:0 0 auto;max-height:55vh;overflow:auto}
 #nav{display:flex;align-items:center;gap:12px}
@@ -102,6 +109,7 @@ header small{display:block;font-size:10.5px;color:#C9D3E0;font-weight:400}
     <div id="modeBar"></div>
     <div id="scale"></div>
     <div id="attr">© OpenStreetMap</div>
+    <canvas id="jv"></canvas>
     <div id="busy">⏳ جارٍ حساب المسارات…</div>
   </div>
   <section id="panel">
@@ -111,6 +119,7 @@ header small{display:block;font-size:10.5px;color:#C9D3E0;font-weight:400}
         <div id="dist">—</div>
         <div id="instr"></div>
         <div id="target"></div>
+        <div id="then"></div>
         <div id="rem"></div>
       </div>
     </div>
@@ -161,6 +170,7 @@ function toast(t,ms){const e=$('toast');e.textContent=t;e.style.display='block';
 function vib(p){try{navigator.vibrate&&navigator.vibrate(p);}catch(e){}}
 function store(k,v){try{localStorage.setItem('dalili_'+k,JSON.stringify(v));}catch(e){}}
 function load(k,d){try{const v=localStorage.getItem('dalili_'+k);return v?JSON.parse(v):d;}catch(e){return d;}}
+function normQ(s){return String(s||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[\u064B-\u065F\u0640\u0670]/g,'').replace(/[أإآٱ]/g,'ا').replace(/ة/g,'ه').replace(/ى/g,'ي').replace(/ؤ/g,'و').replace(/ئ/g,'ي').replace(/ء/g,'').replace(/[^\p{L}\p{N}\s]/gu,' ').replace(/\s+/g,' ').trim();}
 function normAr(s){return String(s||'').toLowerCase().replace(/[ً-ْـ]/g,'').replace(/[أإآ]/g,'ا').replace(/ة/g,'ه').replace(/ى/g,'ي').replace(/\s+/g,' ').trim();}
 
 /* ====================== الحالة ====================== */
@@ -318,6 +328,7 @@ function spokenD(m){if(m<1000){const r=m<100?Math.round(m/10)*10:Math.round(m/50
 /* ====================== تحميل بيانات المنطقة (عند توفر الإنترنت) ====================== */
 const OVERPASS=['https://overpass-api.de/api/interpreter','https://overpass.kumi.systems/api/interpreter','https://overpass.private.coffee/api/interpreter'];
 const HW='motorway|motorway_link|trunk|trunk_link|primary|primary_link|secondary|secondary_link|tertiary|tertiary_link|unclassified|residential|living_street|road|service|track|pedestrian|footway|path|steps|cycleway';
+const altOf=(t,n)=>{for(const k of ['name','name:fr','name:en','name:ar','alt_name','old_name']){const v=t[k];if(v&&v!==n)return v;}return '';};
 const nameOf=t=>t['name:ar']||t.name||t['name:fr']||(t.ref?'الطريق '+t.ref:'');
 function poiKind(t){const a=t.amenity;if(a){return {pharmacy:'💊',hospital:'🏥',clinic:'🏥',doctors:'🩺',place_of_worship:'🕌',school:'🏫',university:'🎓',fuel:'⛽',cafe:'☕',restaurant:'🍽️',fast_food:'🍔',bank:'🏦',atm:'🏧',police:'🚓',post_office:'📮',townhall:'🏛️',marketplace:'🛒',parking:'🅿️'}[a]||'📍';}
   if(t.shop)return '🛍️';if(t.tourism)return '🏨';if(t.place)return (t.place==='city'||t.place==='town')?'🏙️':'🏘️';if(t.office)return '🏢';if(t.healthcare)return '🏥';return null;}
@@ -325,10 +336,10 @@ function wayAttrs(t){const ow=t.oneway;let o=0;if(ow==='yes'||ow==='1'||ow==='tr
   const r=(t.junction==='roundabout'||t.junction==='circular')?1:0;if((r||t.highway==='motorway')&&ow!=='no'&&!o)o=1;
   let a=0;const acc=t.access,mv=t.motor_vehicle||t.motorcar||t.vehicle;
   if(FOOT_ONLY.has(t.highway)||mv==='no'||(acc==='no'&&mv!=='yes'))a|=1;if(t.foot==='no'||(acc==='no'&&t.foot!=='yes'))a|=2;if(acc==='private'||acc==='destination')a|=4;
-  const ms=parseInt(t.maxspeed,10);return {h:t.highway,n:nameOf(t),o,r,a,ms:ms>0?ms:0};}
+  const ms=parseInt(t.maxspeed,10),n=nameOf(t);return {h:t.highway,n,alt:altOf(t,n),o,r,a,ms:ms>0?ms:0};}
 function parseOverpass(js){const nodes=new Map(),ways=[],pois=[];
   for(const e of js.elements||[]){
-    if(e.type==='node'){if(e.lat!=null)nodes.set(e.id,[e.lat,e.lon]);if(e.tags&&nameOf(e.tags)){const k=poiKind(e.tags);if(k)pois.push({n:nameOf(e.tags),lat:e.lat,lon:e.lon,k});}}
+    if(e.type==='node'){if(e.lat!=null)nodes.set(e.id,[e.lat,e.lon]);if(e.tags&&nameOf(e.tags)){const k=poiKind(e.tags);if(k){const n=nameOf(e.tags);pois.push({n,alt:altOf(e.tags,n),lat:e.lat,lon:e.lon,k,pl:e.tags.place||''});}}}
     else if(e.type==='way'&&e.tags&&e.tags.highway&&e.nodes){if(e.tags.area==='yes')continue;const at=wayAttrs(e.tags);at.id=e.id;at.nd=e.nodes;ways.push(at);}}
   const used=new Set();ways.forEach(w=>w.nd.forEach(id=>used.add(id)));const ids=[],lat=[],lon=[];
   for(const id of used){const v=nodes.get(id);if(v){ids.push(id);lat.push(v[0]);lon.push(v[1]);}}
@@ -373,8 +384,8 @@ async function runDownload(tasks,kind,gov,msg,bar){if(DL)return toast('يوجد 
       if(d.ways.length){Object.assign(d,{id:t.id,kind,gov,name:meta.name,bbox:t.bb,t:meta.t});await idbPut('r',t.id,d);}
       S.regions.push(meta);store('regions',S.regions);if(bar)bar(done/tasks.length);}
   }finally{const stopped=DL.stop;DL=null;if(!S.nav){try{S.wake&&S.wake.release();}catch(e){}S.wake=null;}
-    await loadGraph(true);msg(stopped?'تم الإيقاف — يمكنك الإكمال لاحقًا من حيث توقفت':fail?`اكتمل مع ${fail} جزء لم يُحمَّل — اضغط «إكمال» لإعادة المحاولة`:'✅ اكتمل التحميل');}}
-async function removeKind(filter,noReload){const del=S.regions.filter(filter);for(const r of del){await idbDel('r',r.id);REC.delete(r.id);}S.regions=S.regions.filter(r=>!filter(r));store('regions',S.regions);if(!noReload)await loadGraph(true);}
+    await loadGraph(true);await rebuildIndex();msg(stopped?'تم الإيقاف — يمكنك الإكمال لاحقًا من حيث توقفت':fail?`اكتمل مع ${fail} جزء لم يُحمَّل — اضغط «إكمال» لإعادة المحاولة`:'✅ اكتمل التحميل');}}
+async function removeKind(filter,noReload){const del=S.regions.filter(filter);for(const r of del){await idbDel('r',r.id);REC.delete(r.id);}S.regions=S.regions.filter(r=>!filter(r));store('regions',S.regions);if(!noReload){await loadGraph(true);await rebuildIndex();}}
 
 /* ====================== قارئ ملف خريطة تونس (OSM PBF) ====================== */
 const PBF_URL='https://download.geofabrik.de/africa/tunisia-latest.osm.pbf';
@@ -405,7 +416,7 @@ function growF64(a,n){if(n<=a.length)return a;const b=new Float64Array(Math.max(
 async function importPBF(file,msg,bar){const T0=Date.now();
   msg('المرحلة 1 من 4: فهرسة الملف…');const blocks=await pbfIndex(file,f=>bar(f*0.05));
   // ---- المرحلة 2: قراءة الطرق ----
-  const W={id:[],h:[],n:[],o:[],r:[],a:[],ms:[],rs:[],re:[]};const names=[''],nameIx=new Map([['',0]]);let refs=new Float64Array(1<<20),RN=0;const nodeBlocks=[];
+  const W={id:[],h:[],n:[],al:[],o:[],r:[],a:[],ms:[],rs:[],re:[]};const names=[''],nameIx=new Map([['',0]]);let refs=new Float64Array(1<<20),RN=0;const nodeBlocks=[];
   for(let bi=0;bi<blocks.length;bi++){const [off,len]=blocks[bi];const B=await pbfBlock(file,off,len);if(!B)continue;const buf=B.buf;let hasN=false;
     for(const [gs,ge] of B.groups){const g=new PB(buf,gs,ge);
       while(g.p<g.e){const k=g.v(),f=k>>>3,w=k&7;
@@ -419,7 +430,7 @@ async function importPBF(file,msg,bar){const T0=Date.now();
         const at=wayAttrs(t);let ni=nameIx.get(at.n);if(ni===undefined){ni=names.length;names.push(at.n);nameIx.set(at.n,ni);}
         const start=RN,rp=new PB(buf,rs[0],rs[1]);let ref=0;while(rp.p<rp.e){ref+=rp.s();if(RN>=refs.length)refs=growF64(refs,RN+1);refs[RN++]=ref;}
         if(RN-start<2){RN=start;continue;}
-        W.id.push(id);W.h.push(at.h);W.n.push(ni);W.o.push(at.o);W.r.push(at.r);W.a.push(at.a);W.ms.push(at.ms);W.rs.push(start);W.re.push(RN);}}
+        let ai=nameIx.get(at.alt);if(ai===undefined){ai=names.length;names.push(at.alt);nameIx.set(at.alt,ai);}W.id.push(id);W.h.push(at.h);W.n.push(ni);W.al.push(ai);W.o.push(at.o);W.r.push(at.r);W.a.push(at.a);W.ms.push(at.ms);W.rs.push(start);W.re.push(RN);}}
     if(hasN)nodeBlocks.push(bi);
     if(bi%20===0){bar(0.05+0.35*bi/blocks.length);msg('المرحلة 2 من 4: قراءة الطرق… '+W.id.length.toLocaleString('ar')+' طريق');await new Promise(r=>setTimeout(r,0));}}
   if(!W.id.length)throw new Error('لم أجد طرقًا في الملف');
@@ -433,7 +444,7 @@ async function importPBF(file,msg,bar){const T0=Date.now();
   const idxOf=id=>{if(id<last){let lo=0,hi=U;while(lo<hi){const m=(lo+hi)>>1;if(NEED[m]<id)lo=m+1;else hi=m;}ptr=lo;}last=id;while(ptr<U&&NEED[ptr]<id)ptr++;return ptr<U&&NEED[ptr]===id?ptr:-1;};
   const onNode=(B,id,lat,lon,kvs)=>{const u=idxOf(id);if(u>=0){LAT[u]=Math.round(lat*1e7);LON[u]=Math.round(lon*1e7);}
     if(kvs){let poi=false,named=false;for(let i=0;i<kvs.length;i+=2){const k=B.str(kvs[i]);if(POI_KEYS.has(k))poi=true;else if(k==='name'||k==='name:ar')named=true;}
-      if(poi&&named){const t={};for(let i=0;i<kvs.length;i+=2)t[B.str(kvs[i])]=B.str(kvs[i+1]);const k=poiKind(t);if(k)pois.push({n:nameOf(t),lat,lon,k,big:BIG_PLACE.has(t.place)});}}};
+      if(poi&&named){const t={};for(let i=0;i<kvs.length;i+=2)t[B.str(kvs[i])]=B.str(kvs[i+1]);const k=poiKind(t);if(k){const n=nameOf(t);pois.push({n,alt:altOf(t,n),lat,lon,k,pl:t.place||'',big:BIG_PLACE.has(t.place)});}}}};
   for(let q=0;q<nodeBlocks.length;q++){const [off,len]=blocks[nodeBlocks[q]];const B=await pbfBlock(file,off,len);if(!B)continue;const buf=B.buf;
     for(const [gs,ge] of B.groups){const g=new PB(buf,gs,ge);
       while(g.p<g.e){const k=g.v(),f=k>>>3,w=k&7;
@@ -459,9 +470,9 @@ async function importPBF(file,msg,bar){const T0=Date.now();
   const poiDet=new Map(),poiNat=new Map();for(const p of pois){const dk=Math.floor(p.lat*10)*10000+Math.floor(p.lon*10);(poiDet.get(dk)||poiDet.set(dk,[]).get(dk)).push(p);
     if(p.big){const nk=Math.floor(p.lat)*10000+Math.floor(p.lon);(poiNat.get(nk)||poiNat.set(nk,[]).get(nk)).push(p);}}
   const mkRec=(list,P)=>{const ways=[],nodes=new Map();for(const w of list){const nd=[];for(let r=W.rs[w];r<W.re[w];r++){const u=refIdx[r];if(LAT[u]===MISS)continue;nd.push(NEED[u]);nodes.set(u,1);}
-      if(nd.length>1)ways.push({id:W.id[w],h:W.h[w],n:names[W.n[w]],o:W.o[w],r:W.r[w],a:W.a[w],ms:W.ms[w],nd});}
+      if(nd.length>1)ways.push({id:W.id[w],h:W.h[w],n:names[W.n[w]],alt:names[W.al[w]],o:W.o[w],r:W.r[w],a:W.a[w],ms:W.ms[w],nd});}
     const ids=[],lat=[],lon=[];for(const u of nodes.keys()){ids.push(NEED[u]);lat.push(LAT[u]/1e7);lon.push(LON[u]/1e7);}
-    return {ways,nodes:{ids,lat,lon},pois:(P||[]).map(p=>({n:p.n,lat:p.lat,lon:p.lon,k:p.k}))};};
+    return {ways,nodes:{ids,lat,lon},pois:(P||[]).map(p=>({n:p.n,alt:p.alt,lat:p.lat,lon:p.lon,k:p.k,pl:p.pl}))};};
   // احذف خرائط تونس السابقة (يبقى ما حمّلته كمنطقة صغيرة)
   await removeKind(x=>x.kind==='nat'||x.kind==='det',true);
   const metas=[];let done=0;const total=det.size+nat.size;
@@ -472,7 +483,7 @@ async function importPBF(file,msg,bar){const T0=Date.now();
     Object.assign(rec,{id,kind:'det',gov:'PBF',name:'تونس',bbox:bb,t:Date.now()});await idbPut('r',id,rec);metas.push({id,kind:'det',gov:'PBF',name:'تونس',bbox:bb,t:rec.t,ways:rec.ways.length,pois:rec.pois.length});
     if(++done%10===0){bar(0.7+0.3*done/total);msg('المرحلة 4 من 4: حفظ الخريطة… '+Math.round(100*done/total)+'%');await new Promise(r=>setTimeout(r,0));}}
   S.regions=S.regions.concat(metas);store('regions',S.regions);store('pbfInfo',{t:Date.now(),name:file.name||'tunisia-latest.osm.pbf',size:file.size,ways:NW,pois:pois.length});
-  await loadGraph(true);bar(1);msg('✅ اكتملت الخريطة: '+NW.toLocaleString('ar')+' طريق و'+pois.length.toLocaleString('ar')+' مكان — في '+Math.round((Date.now()-T0)/1000)+' ثانية');}
+  await loadGraph(true);msg('بناء فهرس البحث لكل تونس…');await rebuildIndex();bar(1);msg('✅ اكتملت الخريطة: '+NW.toLocaleString('ar')+' طريق و'+pois.length.toLocaleString('ar')+' مكان — في '+Math.round((Date.now()-T0)/1000)+' ثانية');}
 async function fetchPBF(msg,bar){const r=await fetch(PBF_URL);if(!r.ok)throw new Error('HTTP '+r.status);const tot=+r.headers.get('content-length')||0;const rd=r.body.getReader(),parts=[];let got=0;
   for(;;){const {done,value}=await rd.read();if(done)break;parts.push(value);got+=value.length;if(parts.length%30===0){msg('تحميل ملف الخريطة… '+(got/1048576).toFixed(1)+(tot?' / '+(tot/1048576).toFixed(0):'')+' ميغابايت');tot&&bar(got/tot);}}
   return new File(parts,'tunisia-latest.osm.pbf');}
@@ -508,6 +519,14 @@ window.addEventListener('online',()=>{for(const [k,v] of mem)if(v===false)mem.de
 function project(lat,lon,z){const s=TS*Math.pow(2,z);const sn=Math.min(.9999,Math.max(-.9999,Math.sin(lat*D2R)));return {x:(lon+180)/360*s,y:(0.5-Math.log((1+sn)/(1-sn))/(4*Math.PI))*s};}
 function unproject(x,y,z){const s=TS*Math.pow(2,z);const n=Math.PI-2*Math.PI*y/s;return {lat:Math.atan(Math.sinh(n))/D2R,lon:x/s*360-180};}
 let W=0,H=0,DPR=1;const cv=$('map'),ctx=cv.getContext('2d');let VC=null;
+S.rot=0;S.ay=0.5;S.zT=null;S.headUp=load('headUp',true);
+const MG=()=>(Math.abs(S.rot)>0.001||Math.abs(S.ay-0.5)>0.01)?Math.max(W,H)*0.75:30;
+function scrToU(x,y){const dx=x-W/2,dy=y-H*S.ay,c=Math.cos(-S.rot),s=Math.sin(-S.rot);return [dx*c-dy*s+W/2,dx*s+dy*c+H/2];}
+function ease(){let mv=false;const k=0.16;
+  if(S.zT!=null&&S.follow&&S.nav){const d=S.zT-S.view.z;if(Math.abs(d)>0.01){S.view.z+=d*k*0.6;mv=true;}}
+  const h=heading();const rT=(S.headUp&&S.nav&&S.follow&&h!=null)?-h*D2R:0;const dr=norm180((rT-S.rot)/D2R)*D2R;if(Math.abs(dr)>0.002){S.rot+=dr*k;mv=true;}else S.rot=rT;
+  const aT=(S.nav&&S.follow)?0.66:0.5;if(Math.abs(aT-S.ay)>0.002){S.ay+=(aT-S.ay)*k;mv=true;}else S.ay=aT;return mv;}
+const rwid=(s,z)=>Math.max(.8,s.w*Math.pow(1.62,z-16)*1.15);
 function toScr(p){const a=project(p.lat,p.lon,S.view.z);return {x:W/2+a.x-VC.x,y:H/2+a.y-VC.y};}
 function scrLL(la,lo){const a=project(la,lo,S.view.z);return [W/2+a.x-VC.x,H/2+a.y-VC.y];}
 function toGeo(x,y){const c=project(S.view.lat,S.view.lon,S.view.z);return unproject(c.x+x-W/2,c.y+y-H/2,S.view.z);}
@@ -516,7 +535,7 @@ function resize(){const r=cv.getBoundingClientRect();DPR=window.devicePixelRatio
 let drawPending=false;function reqDraw(){if(!drawPending){drawPending=true;requestAnimationFrame(()=>{drawPending=false;draw();});}}
 const GSTY=[{c:'#E9A15F',k:'#B97434',w:7},{c:'#F5D27C',k:'#C79C3B',w:6.5},{c:'#FAE6AC',k:'#C9AF6B',w:6},{c:'#FFFFFF',k:'#A9B2BE',w:5.6},{c:'#FFFFFF',k:'#B9C1CC',w:4.8},{c:'#FFFFFF',k:'#CBD1D9',w:2.8},{c:'#8C9AAB',w:1.4,dash:[5,4]}];
 function drawRoads(){if(!G)return;const z=S.view.z;if(z<10.5)return;const vis=z<11.5?2:z<13?4:z<14.3?5:z<15?6:7;const sc=Math.pow(2,z-16);
-  const tl=toGeo(-30,-30),br=toGeo(W+30,H+30);const B=[[],[],[],[],[],[],[]];
+  const mg=MG(),tl=toGeo(-mg,-mg),br=toGeo(W+mg,H+mg);const B=[[],[],[],[],[],[],[]];
   const take=e=>{const g=G.eG[e];if(g>=vis)return;const a=G.eA[e],b=G.eB[e];
     if((G.lat[a]>tl.lat&&G.lat[b]>tl.lat)||(G.lat[a]<br.lat&&G.lat[b]<br.lat)||(G.lon[a]<tl.lon&&G.lon[b]<tl.lon)||(G.lon[a]>br.lon&&G.lon[b]>br.lon))return;B[g].push(e);};
   if(z<13)G.major.forEach(take);
@@ -525,20 +544,22 @@ function drawRoads(){if(!G)return;const z=S.view.z;if(z<10.5)return;const vis=z<
   const pts=new Map();const sp=i=>{let v=pts.get(i);if(!v){v=scrLL(G.lat[i],G.lon[i]);pts.set(i,v);}return v;};
   const path=list=>{ctx.beginPath();for(const e of list){const a=sp(G.eA[e]),b=sp(G.eB[e]);ctx.moveTo(a[0],a[1]);ctx.lineTo(b[0],b[1]);}};
   ctx.lineCap='round';ctx.lineJoin='round';
-  if(B[6].length){const s=GSTY[6];path(B[6]);ctx.setLineDash(s.dash);ctx.strokeStyle=s.c;ctx.lineWidth=Math.max(1,s.w*Math.min(1.4,sc*1.2));ctx.stroke();ctx.setLineDash([]);}
-  for(let g=5;g>=0;g--){if(!B[g].length)continue;const s=GSTY[g],w=Math.max(.8,s.w*sc*1.25);if(w<2.2)continue;path(B[g]);ctx.strokeStyle=s.k;ctx.lineWidth=w+2;ctx.stroke();}
-  for(let g=5;g>=0;g--){if(!B[g].length)continue;const s=GSTY[g],w=Math.max(.8,s.w*sc*1.25);path(B[g]);ctx.strokeStyle=w<2.2?s.k:s.c;ctx.lineWidth=w;ctx.stroke();}
+  if(B[6].length){const s=GSTY[6];path(B[6]);ctx.setLineDash(s.dash);ctx.strokeStyle=s.c;ctx.lineWidth=Math.max(1,s.w*Math.min(3,Math.pow(1.5,z-16)));ctx.stroke();ctx.setLineDash([]);}
+  for(let g=5;g>=0;g--){if(!B[g].length)continue;const s=GSTY[g],w=rwid(s,z);if(w<2.2)continue;path(B[g]);ctx.strokeStyle=s.k;ctx.lineWidth=w+(w>10?3.5:2);ctx.stroke();}
+  for(let g=5;g>=0;g--){if(!B[g].length)continue;const s=GSTY[g],w=rwid(s,z);path(B[g]);ctx.strokeStyle=w<2.2?s.k:s.c;ctx.lineWidth=w;ctx.stroke();}
+  if(z>=16.5){let cnt=0;ctx.fillStyle='#7B8794';for(let g=0;g<6&&cnt<160;g++)for(const e of B[g]){const wy=G.ways[G.eW[e]];if(!wy.o||wy.r)continue;let a=sp(G.eA[e]),b=sp(G.eB[e]);if(wy.o<0){const t=a;a=b;b=t;}const L=Math.hypot(b[0]-a[0],b[1]-a[1]);if(L<60)continue;
+    const ang=Math.atan2(b[1]-a[1],b[0]-a[0]),mx=(a[0]+b[0])/2,my=(a[1]+b[1])/2,sz=Math.min(9,rwid(GSTY[g],z)*0.35+3);ctx.save();ctx.translate(mx,my);ctx.rotate(ang);ctx.beginPath();ctx.moveTo(sz,0);ctx.lineTo(-sz*0.6,-sz*0.7);ctx.lineTo(-sz*0.2,0);ctx.lineTo(-sz*0.6,sz*0.7);ctx.closePath();ctx.fill();ctx.restore();if(++cnt>=160)break;}}
   if(z>=15.3&&S.mapStyle==='roads'){const bestSeg=new Map();
     for(let g=0;g<6;g++)for(const e of B[g]){const w=G.eW[e];if(!G.ways[w].n)continue;const a=sp(G.eA[e]),b=sp(G.eB[e]);const L=Math.hypot(b[0]-a[0],b[1]-a[1]);const o=bestSeg.get(w);if(!o||o.L<L)bestSeg.set(w,{L,a,b,n:G.ways[w].n});}
-    const list=[...bestSeg.values()].sort((x,y)=>y.L-x.L).slice(0,60);const placed=[];ctx.font='bold 11.5px Tahoma';ctx.textAlign='center';ctx.textBaseline='middle';ctx.direction='rtl';
-    for(const L of list){const tw=ctx.measureText(L.n).width;if(L.L<tw+14)continue;const mx=(L.a[0]+L.b[0])/2,my=(L.a[1]+L.b[1])/2;if(mx<0||my<0||mx>W||my>H)continue;
+    const list=[...bestSeg.values()].sort((x,y)=>y.L-x.L).slice(0,60);const placed=[];ctx.font='bold '+(z>=17.5?13:11.5)+'px Tahoma';ctx.textAlign='center';ctx.textBaseline='middle';ctx.direction='rtl';
+    for(const L of list){const tw=ctx.measureText(L.n).width;if(L.L<tw+14)continue;const mx=(L.a[0]+L.b[0])/2,my=(L.a[1]+L.b[1])/2;if(mx<-mg||my<-mg||mx>W+mg||my>H+mg)continue;
       if(placed.some(p=>Math.hypot(p[0]-mx,p[1]-my)<(p[2]+tw)/2+6))continue;placed.push([mx,my,tw]);
-      let ang=Math.atan2(L.b[1]-L.a[1],L.b[0]-L.a[0]);if(ang>Math.PI/2)ang-=Math.PI;if(ang<-Math.PI/2)ang+=Math.PI;
+      let ang=Math.atan2(L.b[1]-L.a[1],L.b[0]-L.a[0]);let a2=Math.atan2(Math.sin(ang+S.rot),Math.cos(ang+S.rot));if(a2>Math.PI/2||a2<-Math.PI/2)ang+=Math.PI;
       ctx.save();ctx.translate(mx,my);ctx.rotate(ang);ctx.lineWidth=3.5;ctx.strokeStyle='#fff';ctx.strokeText(L.n,0,0);ctx.fillStyle='#374151';ctx.fillText(L.n,0,0);ctx.restore();}
     ctx.textBaseline='alphabetic';}}
 drawRoads.id=0;
 function drawTiles(){const tz=Math.max(0,Math.min(19,Math.round(S.view.z))),sc=Math.pow(2,S.view.z-tz),n=1<<tz;const c=project(S.view.lat,S.view.lon,tz),sz=TS*sc;
-  const x0=Math.floor((c.x-W/2/sc)/TS),x1=Math.floor((c.x+W/2/sc)/TS),y0=Math.floor((c.y-H/2/sc)/TS),y1=Math.floor((c.y+H/2/sc)/TS);tilesShown=0;
+  const m=MG(),x0=Math.floor((c.x-(W/2+m)/sc)/TS),x1=Math.floor((c.x+(W/2+m)/sc)/TS),y0=Math.floor((c.y-(H/2+m)/sc)/TS),y1=Math.floor((c.y+(H/2+m)/sc)/TS);tilesShown=0;
   for(let ty=y0;ty<=y1;ty++){if(ty<0||ty>=n)continue;for(let tx=x0;tx<=x1;tx++){const wx=((tx%n)+n)%n,sx=W/2+(tx*TS-c.x)*sc,sy=H/2+(ty*TS-c.y)*sc;
     const img=getTile(tz,wx,ty,true);if(img){ctx.drawImage(img,sx,sy,sz+.5,sz+.5);tilesShown++;continue;}
     for(let k=1;k<=4&&tz-k>=0;k++){const px=wx>>k,py=ty>>k,pi=getTile(tz-k,px,py,k<=2);if(pi){const sub=TS>>k;ctx.drawImage(pi,(wx-(px<<k))*sub,(ty-(py<<k))*sub,sub,sub,sx,sy,sz+.5,sz+.5);tilesShown++;break;}}}}}
@@ -548,51 +569,86 @@ function polyline(pts,color,width,opt){opt=opt||{};if(pts.length<2)return;const 
   ctx.setLineDash(opt.dash||[]);pth();ctx.strokeStyle=color;ctx.lineWidth=width;ctx.stroke();ctx.setLineDash([]);}
 function dot(p,r,fill,stroke,lbl){const s=toScr(p);ctx.beginPath();ctx.arc(s.x,s.y,r,0,7);ctx.fillStyle=fill;ctx.fill();ctx.lineWidth=2.5;ctx.strokeStyle=stroke||'#fff';ctx.stroke();
   if(lbl!=null){ctx.fillStyle='#fff';ctx.font='bold '+Math.round(r*1.1)+'px Tahoma';ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText(lbl,s.x,s.y+1);ctx.textBaseline='alphabetic';}return s;}
-function pin(p,color,name){const s=toScr(p);ctx.save();ctx.translate(s.x,s.y);ctx.beginPath();ctx.moveTo(0,0);ctx.bezierCurveTo(-4,-10,-13,-14,-13,-24);ctx.arc(0,-24,13,Math.PI,0);ctx.bezierCurveTo(13,-14,4,-10,0,0);ctx.fillStyle=color;ctx.fill();ctx.strokeStyle='#fff';ctx.lineWidth=2.5;ctx.stroke();ctx.beginPath();ctx.arc(0,-24,5,0,7);ctx.fillStyle='#fff';ctx.fill();ctx.restore();
-  if(name){ctx.font='bold 12px Tahoma';ctx.direction='rtl';ctx.textAlign='center';const w=ctx.measureText(name).width+10;ctx.fillStyle='#ffffffe6';ctx.fillRect(s.x-w/2,s.y-54,w,17);ctx.fillStyle='#1F2937';ctx.fillText(name,s.x,s.y-41);}}
+function pin(p,color,name){const s=toScr(p);ctx.save();ctx.translate(s.x,s.y);ctx.rotate(-S.rot);ctx.beginPath();ctx.moveTo(0,0);ctx.bezierCurveTo(-4,-10,-13,-14,-13,-24);ctx.arc(0,-24,13,Math.PI,0);ctx.bezierCurveTo(13,-14,4,-10,0,0);ctx.fillStyle=color;ctx.fill();ctx.strokeStyle='#fff';ctx.lineWidth=2.5;ctx.stroke();ctx.beginPath();ctx.arc(0,-24,5,0,7);ctx.fillStyle='#fff';ctx.fill();
+  if(name){ctx.font='bold 12px Tahoma';ctx.direction='rtl';ctx.textAlign='center';const w=ctx.measureText(name).width+10;ctx.fillStyle='#ffffffe6';ctx.fillRect(-w/2,-54,w,17);ctx.fillStyle='#1F2937';ctx.fillText(name,0,-41);}ctx.restore();}
+function chevrons(pts){if(pts.length<2||S.view.z<15)return;const sp=pts.map(toScr);let acc=40;ctx.strokeStyle='#ffffffd0';ctx.lineWidth=2.6;ctx.lineCap='round';ctx.lineJoin='round';
+  for(let i=1;i<sp.length;i++){const a=sp[i-1],b=sp[i],L=Math.hypot(b.x-a.x,b.y-a.y);if(!L)continue;const ux=(b.x-a.x)/L,uy=(b.y-a.y)/L;let t=acc;
+    while(t<L){const x=a.x+ux*t,y=a.y+uy*t;ctx.beginPath();ctx.moveTo(x-ux*4.5-uy*4.5,y-uy*4.5+ux*4.5);ctx.lineTo(x+ux*1.5,y+uy*1.5);ctx.lineTo(x-ux*4.5+uy*4.5,y-uy*4.5-ux*4.5);ctx.stroke();t+=55;}acc=t-L;}}
+function maneuverArrow(rt,st,w){const m=mpp(),pre=Math.min(st.at,Math.max(12,80*m)),post=Math.min(rt.total-st.at,Math.max(10,60*m));if(post<2)return;const pts=[];
+  for(let i=0;i<=40;i++)pts.push(toScr(posAt(rt,st.at-pre+(pre+post)*i/40)));const n=pts.length,e=pts[n-1];let b=pts[Math.max(0,n-4)];let ang=Math.atan2(e.y-b.y,e.x-b.x);
+  const path=()=>{ctx.beginPath();ctx.moveTo(pts[0].x,pts[0].y);for(let i=1;i<n;i++)ctx.lineTo(pts[i].x,pts[i].y);};const head=sc=>{ctx.save();ctx.translate(e.x,e.y);ctx.rotate(ang);ctx.beginPath();ctx.moveTo(w*1.25*sc,0);ctx.lineTo(-w*0.2,-w*1.05*sc);ctx.lineTo(-w*0.2,w*1.05*sc);ctx.closePath();ctx.fill();ctx.restore();};
+  ctx.lineCap='butt';ctx.lineJoin='round';path();ctx.strokeStyle='#0F2240';ctx.lineWidth=w+5;ctx.stroke();ctx.fillStyle='#0F2240';head(1.18);path();ctx.strokeStyle='#fff';ctx.lineWidth=w;ctx.stroke();ctx.fillStyle='#fff';head(1);ctx.lineCap='round';}
+function callout(p,text){if(!text)return;const s=toScr(p);ctx.save();ctx.translate(s.x,s.y);ctx.rotate(-S.rot);ctx.font='bold 13px Tahoma';ctx.direction='rtl';ctx.textAlign='center';ctx.textBaseline='middle';
+  const w=ctx.measureText(text).width+16;ctx.fillStyle='#1B365D';ctx.beginPath();if(ctx.roundRect)ctx.roundRect(-w/2,-52,w,24,6);else ctx.rect(-w/2,-52,w,24);ctx.fill();ctx.beginPath();ctx.moveTo(-6,-28.5);ctx.lineTo(6,-28.5);ctx.lineTo(0,-20);ctx.fill();ctx.fillStyle='#fff';ctx.fillText(text,0,-39.5);ctx.restore();ctx.textBaseline='alphabetic';}
 function drawGrid(){const m=mpp(),steps=[50,100,200,500,1000,2000,5000,10000,20000,50000];const st=steps.find(s=>s/m>=70)||50000;const c=toGeo(W/2,H/2),tl=toGeo(0,0),br=toGeo(W,H);
   ctx.strokeStyle='#D3DAE3';ctx.lineWidth=1;const dLat=st/111320,dLon=st/(111320*Math.cos(c.lat*D2R));ctx.beginPath();
   for(let la=Math.floor(br.lat/dLat)*dLat;la<=tl.lat+dLat;la+=dLat){const p=toScr({lat:la,lon:c.lon});ctx.moveTo(0,p.y);ctx.lineTo(W,p.y);}
   for(let lo=Math.floor(tl.lon/dLon)*dLon;lo<=br.lon+dLon;lo+=dLon){const p=toScr({lat:c.lat,lon:lo});ctx.moveTo(p.x,0);ctx.lineTo(p.x,H);}ctx.stroke();}
-function draw(){if(!W)return;ctx.setTransform(DPR,0,0,DPR,0,0);VC=project(S.view.lat,S.view.lon,S.view.z);ctx.fillStyle='#EEF1F4';ctx.fillRect(0,0,W,H);
+function draw(){if(!W)return;const mv=ease();ctx.setTransform(DPR,0,0,DPR,0,0);VC=project(S.view.lat,S.view.lon,S.view.z);ctx.fillStyle='#EEF1F4';ctx.fillRect(0,0,W,H);
+  ctx.translate(W/2,H*S.ay);ctx.rotate(S.rot);ctx.translate(-W/2,-H/2);
   if(!G)drawGrid();drawRoads();tilesShown=0;if(S.mapStyle==='tiles')drawTiles();$('attr').style.display=tilesShown?'block':'none';
-  if(!G&&!tilesShown){ctx.fillStyle='#8A97A8';ctx.font='bold 13px Tahoma';ctx.textAlign='center';ctx.direction='rtl';ctx.fillText('لا توجد خريطة محمّلة لهذه المنطقة',W/2,H/2-40);ctx.font='12px Tahoma';ctx.fillText('اضغط «تحميل منطقة» وأنت متصل بالإنترنت',W/2,H/2-20);}
-  S.places.forEach(p=>{const s=dot(p,6,'#5B7A9A');if(S.view.z>=15){ctx.font='11px Tahoma';ctx.fillStyle='#1F2937';ctx.textAlign='center';ctx.direction='rtl';ctx.fillText(p.name,s.x,s.y-10);}});
+  if(!G&&!tilesShown){ctx.save();ctx.setTransform(DPR,0,0,DPR,0,0);ctx.fillStyle='#8A97A8';ctx.font='bold 13px Tahoma';ctx.textAlign='center';ctx.direction='rtl';ctx.fillText('لا توجد خريطة محمّلة لهذه المنطقة',W/2,H/2-40);ctx.font='12px Tahoma';ctx.fillText('اضغط «تحميل الخرائط» وأنت متصل بالإنترنت',W/2,H/2-20);ctx.restore();}
+  S.places.forEach(p=>{const s=dot(p,6,'#5B7A9A');if(S.view.z>=15){ctx.save();ctx.translate(s.x,s.y);ctx.rotate(-S.rot);ctx.font='11px Tahoma';ctx.fillStyle='#1F2937';ctx.textAlign='center';ctx.direction='rtl';ctx.fillText(p.name,0,-10);ctx.restore();}});
   if(S.plan){S.plan.routes.forEach((r,i)=>{if(i!==S.plan.sel)polyline(r.P,'#8FA3BA',6,{casing:'#fff'});});const r=S.plan.routes[S.plan.sel];polyline(r.P,'#1B365D',7,{casing:'#fff'});
     polyline([r.P[r.P.length-1],r.dest],'#1B365D',2.5,{dash:[6,6]});pin(r.dest,'#A33A3A',r.dest.name);}
   const N=S.nav;
   if(N&&N.kind==='road'){const r=N.rt;const done=[],todo=[];const cut=posAt(r,N.s);
     for(let i=0;i<r.P.length;i++){if(r.cum[i]<=N.s)done.push(r.P[i]);else todo.push(r.P[i]);}done.push(cut);todo.unshift(cut);
-    if(N.s<60&&S.pos&&(r.startGap||0)>15)polyline([S.pos,r.P[0]],'#1B365D',2.5,{dash:[6,6]});polyline(done,'#9AA7B6',6,{casing:'#fff'});polyline(todo,'#1B365D',7,{casing:'#fff'});polyline([r.P[r.P.length-1],r.dest],'#1B365D',2.5,{dash:[6,6]});
-    const k=nextStep();if(k>0){const st=r.steps[k];if(st.type!=='arrive'){const s=toScr(st);ctx.beginPath();ctx.arc(s.x,s.y,8,0,7);ctx.fillStyle='#fff';ctx.fill();ctx.lineWidth=3.5;ctx.strokeStyle='#B8963E';ctx.stroke();}}
+    const rtw=Math.max(7,Math.min(22,rwid(GSTY[4],S.view.z)*0.72));
+    if(N.s<60&&S.pos&&(r.startGap||0)>15)polyline([S.pos,r.P[0]],'#1B365D',2.5,{dash:[6,6]});polyline(done,'#9AA7B6',rtw-1,{casing:'#fff'});polyline(todo,'#2F6FDB',rtw,{casing:'#1B365D'});chevrons(todo);polyline([r.P[r.P.length-1],r.dest],'#1B365D',2.5,{dash:[6,6]});
+    const k=nextStep();if(k>0){const st=r.steps[k];if(st.type!=='arrive'&&st.at-N.s<(S.mode==='walk'?250:900)){maneuverArrow(r,st,Math.max(7,Math.min(16,rtw*0.75)));if(S.view.z>=15)callout(st,st.street);}}
     pin(r.dest,'#A33A3A',r.dest.name);}
   if(N&&N.kind==='direct'){if(S.pos)polyline([S.pos,N.dest],'#1B365D',3,{dash:[10,8]});pin(N.dest,'#A33A3A',N.dest.name);}
   if(S.pos){const s=toScr(S.pos),ar=S.pos.acc/mpp();if(ar>12&&ar<Math.max(W,H)){ctx.beginPath();ctx.arc(s.x,s.y,ar,0,7);ctx.fillStyle='#1B365D1f';ctx.fill();}
     const h=heading();if(h!=null){ctx.save();ctx.translate(s.x,s.y);ctx.rotate(h*D2R);ctx.beginPath();ctx.moveTo(0,-25);ctx.lineTo(10,-6);ctx.lineTo(-10,-6);ctx.closePath();ctx.fillStyle='#1B365D';ctx.fill();ctx.restore();}
     ctx.beginPath();ctx.arc(s.x,s.y,9,0,7);ctx.fillStyle='#2F6FDB';ctx.fill();ctx.lineWidth=3;ctx.strokeStyle='#fff';ctx.stroke();}
-  const m=mpp(),nice=[5,10,20,50,100,200,500,1000,2000,5000,10000,20000,50000,100000];const L=nice.find(v=>v/m>=60)||100000;$('scale').innerHTML=fmtD(L)+'<div style="width:'+Math.round(L/m)+'px"></div>';}
+  const m=mpp(),nice=[5,10,20,50,100,200,500,1000,2000,5000,10000,20000,50000,100000];const L=nice.find(v=>v/m>=60)||100000;$('scale').innerHTML=fmtD(L)+'<div style="width:'+Math.round(L/m)+'px"></div>';
+  renderJV();$('follow').textContent=Math.abs(S.rot)>0.01?'🧭':'⌖';if(mv)reqDraw();}
+
+
+/* ====================== عرض المفترق المكبّر ====================== */
+const jvc=$('jv'),jx=jvc.getContext('2d');
+function renderJV(){const N=S.nav;let show=false;
+  if(N&&N.kind==='road'&&G){const rt=N.rt,k=nextStep(),st=rt.steps[k];const d=st.at-N.s;if(st.type!=='arrive'&&d<(S.mode==='walk'?120:450)&&d>-3){show=true;drawJV(rt,st,d);}}
+  jvc.style.display=show?'block':'none';}
+function drawJV(rt,st,d){const cw=140,ch=150;if(jvc.width!==cw*DPR){jvc.width=cw*DPR;jvc.height=ch*DPR;}jx.setTransform(DPR,0,0,DPR,0,0);jx.fillStyle='#EEF1F4';jx.fillRect(0,0,cw,ch);
+  const R=S.mode==='walk'?38:75,c={lat:st.lat,lon:st.lon};const inB=bearing(posAt(rt,Math.max(0,st.at-25)),c)*D2R,cs=Math.cos(inB),sn=Math.sin(inB),k=(cw*0.5)/R,cx=cw/2,cy=ch*0.6;
+  const T=(la,lo)=>{const p=local({lat:la,lon:lo},c);return [cx+(p.x*cs-p.y*sn)*k,cy-(p.x*sn+p.y*cs)*k];};
+  const ci=Math.floor(c.lat/CELL),cj=Math.floor(c.lon/CELL),seen=new Set(),segs=[[],[]];
+  for(let di=-1;di<=1;di++)for(let dj=-1;dj<=1;dj++){const a=G.grid.get(ckey(ci+di,cj+dj));if(!a)continue;for(const e of a){if(seen.has(e))continue;seen.add(e);
+    const A=G.eA[e],B=G.eB[e];if(pointSeg(c,{lat:G.lat[A],lon:G.lon[A]},{lat:G.lat[B],lon:G.lon[B]})>R*1.6)continue;const g=G.eG[e];if(g===6&&S.mode==='car')continue;segs[g===6?1:0].push(e);}}
+  const pth=list=>{jx.beginPath();for(const e of list){const a=T(G.lat[G.eA[e]],G.lon[G.eA[e]]),b=T(G.lat[G.eB[e]],G.lon[G.eB[e]]);jx.moveTo(a[0],a[1]);jx.lineTo(b[0],b[1]);}};
+  jx.lineCap='round';jx.lineJoin='round';pth(segs[0]);jx.strokeStyle='#AEB6C1';jx.lineWidth=17;jx.stroke();pth(segs[0]);jx.strokeStyle='#fff';jx.lineWidth=13;jx.stroke();
+  if(segs[1].length){pth(segs[1]);jx.setLineDash([4,3]);jx.strokeStyle='#8C9AAB';jx.lineWidth=3;jx.stroke();jx.setLineDash([]);}
+  const pts=[];for(let i=0;i<=40;i++){const p=posAt(rt,st.at-R*1.5+R*2.6*i/40);pts.push(T(p.lat,p.lon));}const n=pts.length,e=pts[n-1],b=pts[n-5],ang=Math.atan2(e[1]-b[1],e[0]-b[0]);
+  jx.beginPath();jx.moveTo(pts[0][0],pts[0][1]);for(const p of pts)jx.lineTo(p[0],p[1]);jx.strokeStyle='#1B365D';jx.lineWidth=11;jx.lineCap='butt';jx.stroke();jx.strokeStyle='#2F6FDB';jx.lineWidth=7;jx.stroke();
+  jx.save();jx.translate(e[0],e[1]);jx.rotate(ang);jx.beginPath();jx.moveTo(13,0);jx.lineTo(-3,-11);jx.lineTo(-3,11);jx.closePath();jx.fillStyle='#1B365D';jx.fill();jx.restore();
+  const me=Math.max(0,st.at-d);if(d>0&&d<R*1.5){const p=posAt(rt,me),q=T(p.lat,p.lon);jx.beginPath();jx.arc(q[0],q[1],6,0,7);jx.fillStyle='#2F6FDB';jx.fill();jx.lineWidth=2.5;jx.strokeStyle='#fff';jx.stroke();}
+  jx.fillStyle='#1B365D';jx.fillRect(0,0,cw,24);jx.fillStyle='#fff';jx.font='bold 12px Tahoma';jx.direction='rtl';jx.textAlign='center';jx.textBaseline='middle';
+  let name=st.street||stepText(st);while(jx.measureText(name).width>cw-10&&name.length>4)name=name.slice(0,-2);jx.fillText(name,cw/2,12.5);
+  jx.fillStyle='#B8963E';const dt=fmtD(Math.max(0,d)),tw=jx.measureText(dt).width+14;jx.fillRect(cw/2-tw/2,ch-26,tw,20);jx.fillStyle='#fff';jx.fillText(dt,cw/2,ch-15.5);jx.textBaseline='alphabetic';}
 
 /* ====================== لمس الخريطة ====================== */
-function setZoom(z,ax,ay){z=Math.max(3,Math.min(19,z));if(ax==null){S.view.z=z;reqDraw();return;}scheduleArea();const g=toGeo(ax,ay);S.view.z=z;const a=project(g.lat,g.lon,z);const c=unproject(a.x-(ax-W/2),a.y-(ay-H/2),z);S.view.lat=c.lat;S.view.lon=c.lon;reqDraw();}
-function setFollow(v){S.follow=v;$('follow').classList.toggle('on',v);if(v&&S.pos){S.view.lat=S.pos.lat;S.view.lon=S.pos.lon;reqDraw();}}
+function setZoom(z,ax,ay){z=Math.max(3,Math.min(20,z));if(S.zT!=null&&S.nav)S.zT=z;if(ax==null){S.view.z=z;reqDraw();return;}scheduleArea();const g=toGeo(ax,ay);S.view.z=z;const a=project(g.lat,g.lon,z);const c=unproject(a.x-(ax-W/2),a.y-(ay-H/2),z);S.view.lat=c.lat;S.view.lon=c.lon;reqDraw();}
+function setFollow(v){S.follow=v;if(!v){S.rot=0;S.ay=0.5;}$('follow').classList.toggle('on',v);if(v&&S.pos){S.view.lat=S.pos.lat;S.view.lon=S.pos.lon;reqDraw();}}
 const ptr=new Map();let GS=null;
 cv.addEventListener('pointerdown',e=>{cv.setPointerCapture(e.pointerId);ptr.set(e.pointerId,{x:e.offsetX,y:e.offsetY});
   if(ptr.size===1)GS={t:'pan',sx:e.offsetX,sy:e.offsetY,moved:false,c:project(S.view.lat,S.view.lon,S.view.z)};else if(ptr.size===2){const [a,b]=[...ptr.values()];GS={t:'pinch',d0:Math.hypot(a.x-b.x,a.y-b.y),z0:S.view.z};}});
 cv.addEventListener('pointermove',e=>{if(!ptr.has(e.pointerId)||!GS)return;ptr.set(e.pointerId,{x:e.offsetX,y:e.offsetY});
-  if(GS.t==='pan'){const dx=e.offsetX-GS.sx,dy=e.offsetY-GS.sy;if(!GS.moved&&Math.hypot(dx,dy)>7){GS.moved=true;setFollow(false);}if(GS.moved){const c=unproject(GS.c.x-dx,GS.c.y-dy,S.view.z);S.view.lat=c.lat;S.view.lon=c.lon;reqDraw();}}
-  else if(ptr.size>=2){const [a,b]=[...ptr.values()];const d=Math.hypot(a.x-b.x,a.y-b.y);if(GS.d0>0)setZoom(GS.z0+Math.log2(d/GS.d0),(a.x+b.x)/2,(a.y+b.y)/2);setFollow(false);}});
+  if(GS.t==='pan'){const dx=e.offsetX-GS.sx,dy=e.offsetY-GS.sy;if(!GS.moved&&Math.hypot(dx,dy)>7){GS.moved=true;setFollow(false);GS.sx=e.offsetX;GS.sy=e.offsetY;GS.c=project(S.view.lat,S.view.lon,S.view.z);return;}if(GS.moved){const c=unproject(GS.c.x-dx,GS.c.y-dy,S.view.z);S.view.lat=c.lat;S.view.lon=c.lon;reqDraw();}}
+  else if(ptr.size>=2){const [a,b]=[...ptr.values()];const d=Math.hypot(a.x-b.x,a.y-b.y);if(S.follow&&S.nav){if(GS.d0>0){S.zT=null;setZoom(GS.z0+Math.log2(d/GS.d0));}return;}setFollow(false);if(GS.d0>0)setZoom(GS.z0+Math.log2(d/GS.d0),(a.x+b.x)/2,(a.y+b.y)/2);}});
 function ptrEnd(e){const tap=GS&&GS.t==='pan'&&!GS.moved&&ptr.size===1;ptr.delete(e.pointerId);if(tap)onTap(e.offsetX,e.offsetY);
   if(ptr.size===0){GS=null;scheduleArea();}else if(ptr.size===1){const p=[...ptr.values()][0];GS={t:'pan',sx:p.x,sy:p.y,moved:true,c:project(S.view.lat,S.view.lon,S.view.z)};}store('view',S.view);}
 cv.addEventListener('pointerup',ptrEnd);cv.addEventListener('pointercancel',ptrEnd);
 cv.addEventListener('wheel',e=>{e.preventDefault();setZoom(S.view.z-Math.sign(e.deltaY)*0.5,e.offsetX,e.offsetY);},{passive:false});
-$('zin').onclick=()=>setZoom(Math.round(S.view.z)+1);$('zout').onclick=()=>setZoom(Math.round(S.view.z)-1);
-$('follow').onclick=()=>{if(!S.pos)return toast('لم يتم تحديد موقعك بعد');setFollow(true);if(S.view.z<15)setZoom(P().zoom);};
+$('zin').onclick=()=>{if(S.nav)S.zT=null;setZoom(Math.round(S.view.z)+1);};$('zout').onclick=()=>{if(S.nav)S.zT=null;setZoom(Math.round(S.view.z)-1);};
+$('follow').onclick=()=>{if(!S.pos)return toast('لم يتم تحديد موقعك بعد');if(S.follow&&S.nav){S.headUp=!S.headUp;store('headUp',S.headUp);toast(S.headUp?'🧭 الخريطة تدور مع اتجاه سيرك':'⬆️ الشمال دائمًا للأعلى');reqDraw();return;}setFollow(true);if(S.nav)S.zT=P().zoom;else if(S.view.z<15)setZoom(P().zoom);};
 $('fit').onclick=()=>{const pts=[];if(S.pos)pts.push(S.pos);if(S.nav&&S.nav.kind==='road')pts.push(...S.nav.rt.P);else if(S.nav)pts.push(S.nav.dest);else if(S.plan)S.plan.routes.forEach(r=>pts.push(...r.P));else pts.push(...S.places);if(!pts.length)return;fitTo(pts);};
 function fitTo(pts){setFollow(false);if(pts.length===1){S.view.lat=pts[0].lat;S.view.lon=pts[0].lon;setZoom(P().zoom);return;}
   const ps=pts.map(p=>project(p.lat,p.lon,0)),xs=ps.map(p=>p.x),ys=ps.map(p=>p.y),w=Math.max(...xs)-Math.min(...xs),h=Math.max(...ys)-Math.min(...ys);
   const z=Math.min(Math.log2((W-70)/Math.max(w,1e-9)),Math.log2((H-70)/Math.max(h,1e-9)));const c=unproject((Math.max(...xs)+Math.min(...xs))/2,(Math.max(...ys)+Math.min(...ys))/2,0);
   S.view.lat=c.lat;S.view.lon=c.lon;setZoom(Math.min(18,Math.max(3,z)));}
-function onTap(x,y){const g=toGeo(x,y);
+function onTap(x,y){const u=scrToU(x,y),g=toGeo(u[0],u[1]);
   if(S.tap==='pick'){S.tap=null;showModeBar();destForm({lat:+g.lat.toFixed(6),lon:+g.lon.toFixed(6),name:''});return;}
   if(S.plan){const tol=25*mpp();let bi=-1,bd=Infinity;S.plan.routes.forEach((r,i)=>{const l=locate(r,g,0,true);if(l.d<bd){bd=l.d;bi=i;}});if(bi>=0&&bd<tol){S.plan.sel=bi;planSheet();reqDraw();}}}
 function showModeBar(){const b=$('modeBar');if(S.tap==='pick'){b.innerHTML='📍 اضغط على مكان الوجهة في الخريطة<div class="row"><button id="pCancel">إلغاء</button></div>';b.style.display='block';$('pCancel').onclick=()=>{S.tap=null;showModeBar();};}else b.style.display='none';}
@@ -605,17 +661,38 @@ function parseCoords(s){s=String(s).replace(/[٠-٩]/g,d=>'٠١٢٣٤٥٦٧٨٩'
   const m=s.match(/@(-?\d+\.\d+),\s*(-?\d+\.\d+)/)||s.match(/[?&](?:q|ll|query|destination|daddr)=(-?\d+\.?\d*)\s*,\s*(-?\d+\.?\d*)/)||s.match(/(-?\d{1,2}(?:\.\d+)?)\s*[,;\s]\s*(-?\d{1,3}(?:\.\d+)?)/);
   if(!m)return null;const lat=+m[1],lon=+m[2];if(!isFinite(lat)||!isFinite(lon)||Math.abs(lat)>90||Math.abs(lon)>180)return null;return {lat,lon};}
 function destForm(pre){pre=pre||{};
-  openSheet(`<h2>📍 إلى أين؟</h2><p class="sub">ابحث عن شارع أو مكان في المنطقة المحمّلة، أو أدخل الإحداثيات، أو اختر النقطة على الخريطة.</p>
-  <label>🔎 بحث عن شارع أو مكان</label><input id="fq" placeholder="مثال: صيدلية، شارع الحرية…" autocomplete="off"><div id="fres"></div>
+  openSheet(`<h2>📍 إلى أين؟</h2>
+  <input id="fq" placeholder="🔎 شارع، مدينة، مكان… مثال: صيدلية، نهج روما في سوسة" autocomplete="off" style="font-size:16px">
+  <div id="fres"></div>
+  <details ${pre.lat!=null?'open':''}><summary>⚙️ خيارات أخرى: إحداثيات، رابط، اختيار على الخريطة</summary>
   <label>اسم الوجهة</label><input id="fName" value="${esc(pre.name||'')}" placeholder="مثال: بيت العائلة">
   <label>الإحداثيات أو رابط موقع</label><input id="fCo" dir="ltr" placeholder="36.8065, 10.1815" value="${pre.lat!=null?pre.lat+', '+pre.lon:''}">
   <button class="btn light" id="fPick">🗺️ اختيار على الخريطة</button>
   <button class="btn" id="fGo">🧭 اقترح المسارات</button>
-  <button class="btn gold" id="fSave">⭐ حفظ في أماكني</button>`);
-  $('fq').oninput=()=>{const q=normAr($('fq').value);const box=$('fres');if(!G){box.innerHTML='<div class="empty">حمّل منطقة أولًا لتفعيل البحث</div>';return;}if(q.length<2){box.innerHTML='';return;}
-    const res=[];for(const x of G.names){const i=x.q.indexOf(q);if(i<0)continue;res.push({x,sc:(i===0?0:1)+(S.pos?havLL(S.pos.lat,S.pos.lon,x.lat,x.lon)/50000:0)});if(res.length>400)break;}
-    res.sort((a,b)=>a.sc-b.sc);box.innerHTML=res.slice(0,25).map((r,i)=>`<div class="res" data-i="${i}">${r.x.k} ${esc(r.x.n)}<small>${S.pos?fmtD(havLL(S.pos.lat,S.pos.lon,r.x.lat,r.x.lon)):''}</small></div>`).join('')||'<div class="empty">لا توجد نتائج</div>';
-    box.onclick=e=>{const d=e.target.closest('.res');if(!d)return;const x=res[+d.dataset.i].x;$('fName').value=x.n;$('fCo').value=x.lat.toFixed(6)+', '+x.lon.toFixed(6);box.innerHTML='';$('fq').value='';};};
+  <button class="btn gold" id="fSave">⭐ حفظ في أماكني</button></details>`);
+  if(!SIDX.length&&G&&G.names)prepIndex(G.names.map(x=>[x.n,'',x.lat,x.lon,x.k,x.k==='🏙️'?5:x.k==='🏘️'?4:0]));
+  const box=$('fres');let cur=[];
+  const go=p=>{addRecent(p);planTo({name:p.name,lat:p.lat,lon:p.lon});};
+  const rowHTML=(i,k,name,sub)=>`<div class="res" data-i="${i}"><div style="font-size:20px">${k}</div><div class="rb"><div class="rt">${esc(name)}</div><div class="rs">${sub}</div></div><button class="sv" data-sv="${i}" title="حفظ">☆</button></div>`;
+  const ref=()=>S.pos||{lat:S.view.lat,lon:S.view.lon};
+  const subOf=(lat,lon,k,extra)=>{const r=ref();const d=havLL(r.lat,r.lon,lat,lon);return [extra,KIND_LBL[k]||'',fmtD(d)+' '+(d>30?dirName(bearing(r,{lat,lon})):'')].filter(Boolean).join(' · ');};
+  const empty=()=>{const rec=load('recent',[]);cur=rec.map(x=>({name:x.name,lat:x.lat,lon:x.lon,k:x.k}));
+    box.innerHTML=`<div class="chips">${CATS.slice(0,9).map(c=>`<button data-cat="${c[1]}">${c[0]} ${c[1]}</button>`).join('')}</div>`+
+      (S.places.length?'<div class="sub" style="margin:6px 0 0">⭐ أماكني</div>'+S.places.slice(0,5).map((p,i)=>rowHTML('p'+i,'⭐',p.name,subOf(p.lat,p.lon,''))).join(''):'')+
+      (cur.length?'<div class="sub" style="margin:8px 0 0">🕘 عمليات بحث سابقة</div>'+cur.map((x,i)=>rowHTML(i,x.k,x.name,subOf(x.lat,x.lon,x.k))).join(''):'')+
+      (!SIDX.length?'<div class="empty">حمّل خريطة أولًا لتفعيل البحث بالأسماء</div>':'');};
+  const run=()=>{const raw=$('fq').value;if(!raw.trim())return empty();const out=[];
+    const c=parseCoords(raw);if(c&&/\d+\.\d+/.test(raw))out.push({name:'📍 '+c.lat.toFixed(5)+', '+c.lon.toFixed(5),lat:c.lat,lon:c.lon,k:'📍',sub:'إحداثيات'});
+    const nq=normQ(raw);S.places.forEach(p=>{if(normQ(p.name).includes(nq))out.push({name:p.name,lat:p.lat,lon:p.lon,k:'⭐',sub:subOf(p.lat,p.lon,'','أماكني')});});
+    const r=searchAll(raw,ref());for(const x of r.list){const e=x.e;out.push({name:e.n,lat:e.lat,lon:e.lon,k:e.k,sub:subOf(e.lat,e.lon,e.k,[e.alt&&e.alt!==e.n?e.alt:'',e.rk<4?nearCity(e):''].filter(Boolean).join(' · '))});}
+    cur=out;box.innerHTML=(r.ctx?`<div class="sub" style="margin:6px 0">نتائج قرب: <b>${esc(r.ctx)}</b></div>`:r.cat?`<div class="sub" style="margin:6px 0">${esc(r.cat)}: الأقرب أولًا</div>`:'')+
+      (out.map((x,i)=>rowHTML(i,x.k,x.name,x.sub)).join('')||`<div class="empty">لا توجد نتائج${SIDX.length?'':' — حمّل خريطة أولًا'}</div>`);};
+  let tmr=null;$('fq').oninput=()=>{clearTimeout(tmr);tmr=setTimeout(run,140);};
+  box.onclick=e=>{const sv=e.target.closest('[data-sv]'),row=e.target.closest('.res'),ch=e.target.closest('[data-cat]');
+    if(ch){$('fq').value=ch.dataset.cat;run();return;}if(!row)return;const id=(sv||row).dataset.sv||row.dataset.i;
+    const x=String(id).startsWith('p')?S.places[+String(id).slice(1)]:cur[+id];if(!x)return;
+    if(sv){addPlace({name:x.name.replace(/^📍 /,''),lat:x.lat,lon:x.lon});sv.textContent='⭐';toast('تم الحفظ في أماكني');return;}go({name:x.name.replace(/^📍 /,'الوجهة '),lat:x.lat,lon:x.lon,k:x.k});};
+  empty();setTimeout(()=>{try{$('fq').focus();}catch(e){}},150);
   $('fPick').onclick=()=>{closeSheet();S.tap='pick';showModeBar();};
   const read=()=>{const c=parseCoords($('fCo').value);if(!c){toast('اختر وجهة أولًا');return null;}return {name:$('fName').value.trim()||'الوجهة',lat:c.lat,lon:c.lon};};
   $('fGo').onclick=()=>{const p=read();if(p)planTo(p);};
@@ -630,6 +707,54 @@ function placesSheet(){const list=S.places.map((p,i)=>`<div class="item"><div cl
     else if(d.copy!=null){const p=S.places[+d.copy];copyTxt(p.lat.toFixed(6)+','+p.lon.toFixed(6));}
     else if(d.del!=null&&confirm('حذف هذا المكان؟')){S.places.splice(+d.del,1);store('places',S.places);placesSheet();reqDraw();}};}
 function copyTxt(t){(navigator.clipboard?navigator.clipboard.writeText(t):Promise.reject()).then(()=>toast('تم النسخ'),()=>toast(t,6000));}
+
+
+/* ====================== محرّك البحث ====================== */
+const STOPW=new Set(['شارع','نهج','طريق','زنقه','ممر','ساحه','حي','انهج','rue','avenue','av','bd','boulevard','route','impasse','place','street','road','cite','de','du','la','le','el']);
+const CATS=[['💊','صيدلية',['صيدليه','صيدليات','pharmacie','pharmacy']],['🕌','مسجد',['مسجد','جامع','mosquee','mosque']],['🏥','مستشفى',['مستشفي','مستوصف','مصحه','hopital','clinique','hospital']],
+ ['⛽','محطة وقود',['بنزين','وقود','محطه','carburant','essence','fuel','station']],['☕','مقهى',['مقهي','قهوه','cafe']],['🍽️','مطعم',['مطعم','restaurant']],['🍔','أكلة خفيفة',['اكله','سندويتش','fast']],
+ ['🏦','بنك',['بنك','مصرف','banque','bank']],['🏧','صرّاف آلي',['صراف','موزع','atm','distributeur','dab']],['🏫','مدرسة',['مدرسه','معهد','اعداديه','ecole','lycee','college','school']],['🎓','جامعة',['جامعه','كليه','universite','faculte']],
+ ['📮','بريد',['بريد','poste']],['🚓','شرطة',['شرطه','امن','حرس','police','garde']],['🏛️','إدارة',['بلديه','معتمديه','ولايه','municipalite','mairie']],['🛒','سوق',['سوق','marche','market']],
+ ['🏨','نزل',['نزل','فندق','hotel']],['🛍️','محلّ',['محل','متجر','دكان','shop','magasin']],['🩺','طبيب',['طبيب','عياده','docteur','cabinet']],['🅿️','موقف سيارات',['موقف','ماوي','parking']]];
+const KIND_LBL={'🛣️':'شارع / طريق','🏙️':'مدينة','🏘️':'قرية / حي','📍':'مكان'};CATS.forEach(c=>KIND_LBL[c[0]]=c[1]);
+const ROAD_RK={motorway:3,trunk:3,primary:3,secondary:2.5,tertiary:2},PLACE_RK={city:6,town:5,village:4,suburb:4,hamlet:3,neighbourhood:3,quarter:3};
+let SIDX=[],CITIES=[];
+function prepIndex(arr){SIDX=arr.map(e=>({n:e[0],alt:e[1],lat:e[2],lon:e[3],k:e[4],rk:e[5],q:normQ(e[0]+' '+(e[1]||''))}));CITIES=SIDX.filter(e=>e.rk>=4);}
+async function idbEach(fn){try{const d=await db();await new Promise(res=>{const tx=d.transaction('r','readonly');const rq=tx.objectStore('r').openCursor();rq.onsuccess=()=>{const c=rq.result;if(c){if(c.key!=='__sidx')fn(c.value);c.continue();}};tx.oncomplete=res;tx.onerror=res;});}catch(e){}}
+async function rebuildIndex(){const byName=new Map(),out=[];
+  await idbEach(R=>{if(!R||!R.ways||!R.nodes)return;const nm=new Map();R.nodes.ids.forEach((id,i)=>nm.set(id,i));
+    for(const w of R.ways){if(!w.n||w.nd.length<2)continue;const i=nm.get(w.nd[w.nd.length>>1]);if(i===undefined)continue;const la=R.nodes.lat[i],lo=R.nodes.lon[i],rk=ROAD_RK[w.h]||1;
+      let L=byName.get(w.n);if(!L){L=[];byName.set(w.n,L);}const near=L.find(x=>Math.abs(x[2]-la)<0.015&&Math.abs(x[3]-lo)<0.018);
+      if(near){if(rk>near[5])near[5]=rk;if(w.nd.length>near[6]){near[2]=la;near[3]=lo;near[6]=w.nd.length;}if(!near[1]&&w.alt)near[1]=w.alt;}else L.push([w.n,w.alt||'',la,lo,'🛣️',rk,w.nd.length]);}
+    for(const p of R.pois||[])out.push([p.n,p.alt||'',p.lat,p.lon,p.k,p.pl?(PLACE_RK[p.pl]||3):0]);});
+  for(const L of byName.values())for(const x of L){x.length=6;out.push(x);}
+  const seen=new Set(),fin=[];for(const e of out){const key=e[0]+'|'+e[4]+'|'+e[2].toFixed(3)+'|'+e[3].toFixed(3);if(seen.has(key))continue;seen.add(key);fin.push(e);}
+  await idbPut('r','__sidx',{e:fin,t:Date.now()});prepIndex(fin);}
+async function loadIndex(){const r=await idbGet('r','__sidx');if(r&&r.e)prepIndex(r.e);else if(S.regions.some(m=>m.ways))await rebuildIndex();}
+function lev(a,b,max){const m=a.length,n=b.length;if(Math.abs(m-n)>max)return max+1;let prev=[];for(let j=0;j<=n;j++)prev[j]=j;
+  for(let i=1;i<=m;i++){const cur=[i];let best=i;for(let j=1;j<=n;j++){const v=Math.min(prev[j]+1,cur[j-1]+1,prev[j-1]+(a[i-1]===b[j-1]?0:1));cur.push(v);if(v<best)best=v;}if(best>max)return max+1;prev=cur;}return prev[n];}
+const stem=t=>t.length>3&&t.startsWith('ال')?t.slice(2):t;
+function tokMatch(qt,et){let best=99;for(const w of et){const s=stem(w);if(w.startsWith(qt)||s.startsWith(qt))return 0;if(w.includes(qt)){best=Math.min(best,1.2);continue;}
+    if(qt.length>=4){const max=qt.length>=7?2:1;const d=Math.min(lev(qt,s.slice(0,qt.length),max),lev(qt,s,max));if(d<=max)best=Math.min(best,1.6+d);}}return best;}
+function matchEntry(qt,e){const et=e.q.split(' ');let sc=0;for(const t of qt){const m=tokMatch(t,et);if(m>9)return -1;sc+=m;}return sc;}
+function bestCity(q){const qt=normQ(q).split(' ').filter(Boolean).map(stem);if(!qt.length)return null;let best=null,bs=1e9;for(const c of CITIES){const m=matchEntry(qt,c);if(m<0)continue;const sc=m-c.rk;if(sc<bs){bs=sc;best=c;}}return best;}
+function nearCity(e){let best=null,bd=25000;for(const c of CITIES){if(c===e||c.rk<4)continue;const d=havLL(c.lat,c.lon,e.lat,e.lon);if(d<bd){bd=d;best=c;}}return best?best.n:'';}
+function catOf(tok){return CATS.find(c=>c[2].some(w=>w===tok||(tok.length>=3&&w.startsWith(tok))));}
+function searchAll(raw,ref){raw=String(raw||'').trim();if(!raw)return {list:[]};
+  let main=raw,cityPart='';const cm=raw.split(/[,،]/);if(cm.length>1){main=cm[0];cityPart=cm.slice(1).join(' ');}
+  else{const m=normQ(raw).match(/^(.+?)\s+(?:في|ب|قرب|حذو|near|a|in)\s+(.+)$/);if(m){const c=bestCity(m[2]);if(c){main=m[1];cityPart=m[2];}}}
+  let ctx=null;if(cityPart){ctx=bestCity(cityPart);}
+  const q=normQ(main),all=q.split(' ').filter(Boolean).map(stem);if(!all.length)return {list:[]};
+  const cat=all.length&&catOf(all[0]);let qt=all.filter(t=>!STOPW.has(t));if(!qt.length)qt=all;
+  const rest=cat?qt.filter(t=>!cat[2].some(w=>w===t||w.startsWith(t))):qt;
+  const refPt=ctx||ref,res=[];const dist=e=>refPt?havLL(refPt.lat,refPt.lon,e.lat,e.lon):0;
+  if(cat){for(const e of SIDX){if(e.k!==cat[0])continue;let sc=0;if(rest.length){sc=matchEntry(rest,e);if(sc<0)continue;}const d=dist(e);if(ctx&&d>20000)continue;res.push({e,d,sc:sc+Math.log10(1+d/1000)*3});}}
+  const p2=qt[0].slice(0,2);
+  for(const e of SIDX){if(!e.q.includes(p2)&&qt[0].length<4)continue;let sc=matchEntry(qt,e);if(sc<0)continue;
+    if(e.q.startsWith(q))sc-=2;if(e.q===q)sc-=3;const d=dist(e);if(ctx&&d>30000)continue;sc+=(refPt?Math.log10(1+d/1000)*1.6:0)-e.rk*0.7;res.push({e,d,sc});}
+  res.sort((a,b)=>a.sc-b.sc);const seen=new Set(),list=[];for(const r of res){if(seen.has(r.e))continue;seen.add(r.e);list.push(r);if(list.length>=40)break;}
+  return {list,ctx:ctx&&ctx.n,cat:cat&&cat[1]};}
+function addRecent(p){let r=load('recent',[]);r=r.filter(x=>!(x.name===p.name&&Math.abs(x.lat-p.lat)<1e-5));r.unshift({name:p.name,lat:p.lat,lon:p.lon,k:p.k||'📍'});store('recent',r.slice(0,10));}
 
 /* ====================== التخطيط واقتراح المسارات ====================== */
 async function planTo(dest){if(!S.pos){toast('انتظر حتى يحدد GPS موقعك');return;}closeSheet();addPlace(dest);
@@ -660,9 +785,9 @@ async function keepAwake(){try{if(navigator.wakeLock&&!S.wake)S.wake=await navig
 function navUI(on){$('mainBtns').style.display=on?'none':'grid';$('navBtns').style.display=on?'flex':'none';}
 function startRoad(rt){askCompass();keepAwake();S.nav={kind:'road',rt,dest:rt.dest,s:0,seg:0,said:{},off:0,wrong:0,lastRe:0};navUI(true);
   const st1=rt.steps[1];speak(stepText(rt.steps[0])+'. ثم بعد '+spokenD(st1.at)+'، '+stepText(st1));S.nav.said['1_far']=1;
-  setFollow(true);setZoom(P().zoom);updatePanel();reqDraw();}
+  setFollow(true);S.zT=P().zoom+0.8;updatePanel();reqDraw();}
 function startDirect(dest){askCompass();keepAwake();S.nav={kind:'direct',dest,last:''};navUI(true);speak('توجيه مباشر نحو '+dest.name);fitTo(S.pos?[S.pos,dest]:[dest]);updatePanel();}
-function stopNav(msg){S.nav=null;navUI(false);try{S.wake&&S.wake.release();}catch(e){}S.wake=null;if(msg)toast(msg,3500);updatePanel();reqDraw();}
+function stopNav(msg){S.nav=null;S.zT=null;navUI(false);try{S.wake&&S.wake.release();}catch(e){}S.wake=null;if(msg)toast(msg,3500);updatePanel();reqDraw();}
 function locate(rt,p,hint,all){let best={d:Infinity,i:0,s:0};const n=rt.P.length-1;const scan=(lo,hi)=>{for(let i=lo;i<hi;i++){const A=local(rt.P[i],p),B=local(rt.P[i+1],p);const dx=B.x-A.x,dy=B.y-A.y,L=dx*dx+dy*dy;let t=L?-(A.x*dx+A.y*dy)/L:0;t=Math.max(0,Math.min(1,t));const d=Math.hypot(A.x+t*dx,A.y+t*dy);if(d<best.d)best={d,i,s:rt.cum[i]+t*(rt.cum[i+1]-rt.cum[i])};}};
   if(all)scan(0,n);else{scan(Math.max(0,hint-3),Math.min(n,hint+80));if(best.d>40)scan(0,n);}return best;}
 function nextStep(){const N=S.nav;if(!N||N.kind!=='road')return -1;const st=N.rt.steps;for(let k=1;k<st.length;k++)if(st[k].at>N.s+3)return k;return st.length-1;}
@@ -684,6 +809,7 @@ function navTick(){const N=S.nav;if(!N||!S.pos)return;const pp=P();
   if(rt.total-N.s<pp.arrive&&hav(S.pos,N.dest)>Math.max(60,pp.arrive*2)){speak('نهاية الطريق، تابع مباشرة نحو الوجهة');const d=N.dest;S.nav=null;startDirect(d);return;}
   if(rt.total-N.s<pp.arrive||hav(S.pos,N.dest)<pp.arrive){vib([300,150,300,150,300]);speak('لقد وصلت إلى وجهتك'+(N.dest.name?'، '+N.dest.name:''));stopNav('🎉 وصلت إلى وجهتك');return;}
   const k=nextStep(),st=rt.steps[k],d=st.at-N.s;
+  if(S.follow){const v=S.speed;S.zT=S.mode==='walk'?(d<70?18.8:17.8):(d<280?17.7:(v<8?17.2:v<17?16.5:15.8));}
   for(const [thrD,tag] of pp.ann){const key=k+'_'+tag;if(N.said[key])continue;
     if(d<=thrD&&(tag==='now'||d>thrD*0.45)){N.said[key]=1;let t=st.type==='arrive'?(tag==='now'?'وجهتك أمامك':'بعد '+spokenD(d)+' ستصل إلى وجهتك'):(tag==='now'?'الآن، '+stepText(st):'بعد '+spokenD(d)+'، '+stepText(st));
       const nx=rt.steps[k+1];if(tag!=='far'&&nx&&nx.type!=='arrive'&&nx.at-st.at<(S.mode==='car'?120:40))t+='، ثم '+stepText(nx);speak(t);if(tag==='now')vib(150);break;}}}
@@ -732,11 +858,12 @@ function iconSVG(st){if(!st)return '';if(st.type==='arrive')return '<div style="
   const hx=x+7*Math.sin(a),hy=y-7*Math.cos(a),lx=x+7*Math.sin(a-2.2),ly=y-7*Math.cos(a-2.2),rx=x+7*Math.sin(a+2.2),ry=y-7*Math.cos(a+2.2);
   return `<svg viewBox="0 0 52 52" width="56" height="56"><path d="M26 49V26L${x.toFixed(1)} ${y.toFixed(1)}" stroke="#1B365D" stroke-width="6" fill="none" stroke-linecap="round" stroke-linejoin="round"/><path d="M${hx.toFixed(1)} ${hy.toFixed(1)}L${lx.toFixed(1)} ${ly.toFixed(1)}L${rx.toFixed(1)} ${ry.toFixed(1)}Z" fill="#B8963E" stroke="#B8963E" stroke-width="3" stroke-linejoin="round"/></svg>`;}
 function compassSVG(rot){return `<svg viewBox="0 0 52 52" width="52" height="52" style="transform:rotate(${rot}deg);transition:transform .25s"><path d="M26 3L44 46L26 36L8 46Z" fill="#1B365D" stroke="#fff" stroke-width="2" stroke-linejoin="round"/><path d="M26 3L26 36L8 46Z" fill="#B8963E" opacity=".9"/></svg>`;}
-function updatePanel(){const N=S.nav;$('instr').className='';
+function updatePanel(){const N=S.nav;$('instr').className='';$('then').textContent='';
   if(N&&N.kind==='road'){const rt=N.rt,k=nextStep(),st=rt.steps[k],d=Math.max(0,st.at-N.s);const offNow=N.off>0;
     $('icon').innerHTML=iconSVG(st);$('dist').textContent=(st.type==='arrive'?'الوجهة بعد ':'بعد ')+fmtD(d);
     $('instr').textContent=offNow?'⚠️ خارج المسار — جارٍ التحقق…':stepText(st);if(offNow)$('instr').className='warn';
     const cur=streetName(rt.Wo[N.seg]||null);$('target').textContent=cur?'أنت على: '+cur:'إلى: '+(N.dest.name||'');
+    const nx=rt.steps[k+1];$('then').textContent=nx&&nx.type!=='arrive'&&nx.at-st.at<(S.mode==='walk'?80:250)?'⤷ ثم مباشرة: '+stepText(nx):'';
     const rem=Math.max(0,rt.total-N.s),t=rt.time*rem/Math.max(1,rt.total);$('rem').textContent='المتبقي '+fmtD(rem)+' · '+fmtT(t)+' · الوصول '+clock(Date.now()+t*1000);return;}
   if(N&&N.kind==='direct'){if(!S.pos){$('dist').textContent='—';$('instr').textContent='⏳ في انتظار GPS';return;}const h=heading();$('icon').innerHTML=compassSVG(h==null?N.b||0:norm180((N.b||0)-h));
     $('dist').textContent=fmtD(N.d);$('instr').textContent=N.txt||'';$('target').textContent='توجيه مباشر إلى: '+N.dest.name;$('rem').textContent='خط مستقيم — لا تتوفر بيانات شوارع هنا';return;}
@@ -799,7 +926,7 @@ function dlSheet(dest){const regs=S.regions.map((r,i)=>({r,i})).filter(x=>!x.r.k
 async function downloadRegion(bb,name,msg,id){const data=await fetchRoads(bb,msg);if(!data.ways.length)throw new Error('لا توجد طرق في هذه المنطقة');
   id=id||('r'+Date.now());data.id=id;data.name=name;data.bbox=bb;data.t=Date.now();msg&&msg('جارٍ الحفظ على الهاتف…');await idbPut('r',id,data);
   data.kind='custom';REC.delete(id);const meta={id,kind:'custom',name,bbox:bb,t:data.t,ways:data.ways.length,pois:data.pois.length};const i=S.regions.findIndex(r=>r.id===id);if(i>=0)S.regions[i]=meta;else S.regions.push(meta);store('regions',S.regions);
-  msg&&msg('جارٍ تجهيز شبكة الطرق…');await loadGraph(true);}
+  msg&&msg('جارٍ تجهيز شبكة الطرق…');await loadGraph(true);await rebuildIndex(msg);}
 async function downloadTiles(bb,msg){const L=[];const maxZ=P().maxTileZ;for(let z=11;z<=maxZ;z++){const a=project(bb[2],bb[1],z),b=project(bb[0],bb[3],z);for(let x=Math.floor(a.x/TS);x<=Math.floor(b.x/TS);x++)for(let y=Math.floor(a.y/TS);y<=Math.floor(b.y/TS);y++)L.push([z,x,y]);}
   if(L.length>4000){msg&&msg('صور الخريطة كثيرة جدًا لهذه المساحة، تم تخطيها');return;}let done=0,i=0;
   const wk=async()=>{while(i<L.length){const [z,x,y]=L[i++];if(!(await idbGet('t',z+'/'+x+'/'+y)))await fetchTile(z,x,y);done++;if(done%10===0){msg&&msg('صور الخريطة: '+done+' / '+L.length);if($('dBar'))$('dBar').style.width=(done/L.length*100)+'%';}}};
@@ -808,12 +935,13 @@ async function downloadTiles(bb,msg){const L=[];const maxZ=P().maxTileZ;for(let 
 /* ====================== الإعدادات والمساعدة ====================== */
 function settingsSheet(){openSheet(`<h2>⚙️ الإعدادات</h2>
   <div class="switch">🔊 التوجيه الصوتي<input type="checkbox" id="sV" ${S.voice?'checked':''}></div>
+  <div class="switch">🧭 تدوير الخريطة مع اتجاه السير<input type="checkbox" id="sH" ${S.headUp?'checked':''}></div>
   <label>شكل الخريطة</label><select id="sM"><option value="roads" ${S.mapStyle==='roads'?'selected':''}>شوارع مرسومة (خفيفة، بدون إنترنت)</option><option value="tiles" ${S.mapStyle==='tiles'?'selected':''}>صور الخريطة المحمّلة</option></select>
   <div class="switch">🗺️ حفظ صور الخريطة عند التصفّح<input type="checkbox" id="sA" ${S.autoCache?'checked':''}></div>
   <button class="btn light" id="sT">🔈 تجربة الصوت</button>
   <button class="btn light" id="sEx">📤 نسخ أماكني (للنقل إلى هاتف آخر)</button><button class="btn light" id="sIm">📥 استيراد أماكن</button>
   <button class="btn red" id="sClr">🗑️ حذف صور الخريطة المخزّنة</button>`);
-  $('sV').onchange=e=>{S.voice=e.target.checked;store('voice',S.voice);};$('sM').onchange=e=>{S.mapStyle=e.target.value;store('mapStyle',S.mapStyle);reqDraw();};
+  $('sV').onchange=e=>{S.voice=e.target.checked;store('voice',S.voice);};$('sH').onchange=e=>{S.headUp=e.target.checked;store('headUp',S.headUp);reqDraw();};$('sM').onchange=e=>{S.mapStyle=e.target.value;store('mapStyle',S.mapStyle);reqDraw();};
   $('sA').onchange=e=>{S.autoCache=e.target.checked;store('autoCache',S.autoCache);};
   $('sT').onclick=()=>{const v=S.voice;S.voice=true;speak('بعد 300 متر، انعطف إلى اليمين إلى شارع الحرية');S.voice=v;};
   $('sEx').onclick=()=>copyTxt(JSON.stringify(S.places));
@@ -842,7 +970,7 @@ document.addEventListener('visibilitychange',()=>{if(document.visibilityState===
 window.addEventListener('resize',resize);
 
 /* ====================== تشغيل ====================== */
-resize();updatePanel();startGPS();loadGraph();
+resize();updatePanel();startGPS();loadGraph();loadIndex();
 if('serviceWorker' in navigator&&location.protocol==='https:'){navigator.serviceWorker.register('sw.js').catch(()=>{});}
 if(!load('seenHelp2',false)){store('seenHelp2',true);setTimeout(()=>{if($('sheet').style.display!=='block')helpSheet();},400);}
 </script>
