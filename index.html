@@ -123,7 +123,7 @@ header small{display:block;font-size:10.5px;color:#C9D3E0;font-weight:400}
       <button id="bPlaces"><b>⭐</b>أماكني</button>
       <button id="bSave"><b>🅿️</b>احفظ موقعي</button>
       <button id="bHome"><b>↩️</b>العودة للبداية</button>
-      <button id="bDl"><b>⬇️</b>تحميل منطقة</button>
+      <button id="bDl"><b>⬇️</b>تحميل الخرائط</button>
       <button id="bSet"><b>⚙️</b>الإعدادات</button>
     </div>
     <div id="navBtns">
@@ -197,16 +197,17 @@ function prepWay(w){let kmh=CAR_KMH[w.h]||0;if(w.ms&&kmh)kmh=Math.min(kmh,w.ms*0
   return {id:w.id,h:w.h,n:w.n||'',o:w.o||0,r:w.r||0,car:kmh>0&&!(w.a&1),foot:!(w.a&2)&&w.h!=='motorway'&&w.h!=='motorway_link',cs:kmh/3.6,wf:WALK_F[w.h]||1,priv:!!(w.a&4),g:GRP[w.h]!=null?GRP[w.h]:6};}
 const ckey=(i,j)=>i*1e6+j;
 function buildGraph(regions){
-  const idx=new Map(),lat=[],lon=[],adj=[],eA=[],eB=[],eL=[],eW=[],ways=[],seenW=new Set(),pois=[],seenP=new Set();
+  const idx=new Map(),lat=[],lon=[],eA=[],eB=[],eL=[],eW=[],ways=[],seenW=new Set(),pois=[],seenP=new Set();
   for(const R of regions){const nm=new Map();const ids=R.nodes.ids;for(let i=0;i<ids.length;i++)nm.set(ids[i],i);
     for(const w of R.ways){if(seenW.has(w.id))continue;seenW.add(w.id);const wi=ways.length;ways.push(prepWay(w));let prev=-1;
       for(const id of w.nd){let k=idx.get(id);
-        if(k===undefined){const j=nm.get(id);if(j===undefined){prev=-1;continue;}k=lat.length;idx.set(id,k);lat.push(R.nodes.lat[j]);lon.push(R.nodes.lon[j]);adj.push([]);}
-        if(prev>=0&&prev!==k){const s=eA.length;eA.push(prev);eB.push(k);eL.push(Math.max(.1,havLL(lat[prev],lon[prev],lat[k],lon[k])));eW.push(wi);adj[prev].push(s);adj[k].push(s);}
+        if(k===undefined){const j=nm.get(id);if(j===undefined){prev=-1;continue;}k=lat.length;idx.set(id,k);lat.push(R.nodes.lat[j]);lon.push(R.nodes.lon[j]);}
+        if(prev>=0&&prev!==k){const s=eA.length;eA.push(prev);eB.push(k);eL.push(Math.max(.1,havLL(lat[prev],lon[prev],lat[k],lon[k])));eW.push(wi);}
         prev=k;}}
     for(const p of R.pois||[]){const key=p.n+'|'+p.lat.toFixed(4)+'|'+p.lon.toFixed(4);if(seenP.has(key))continue;seenP.add(key);pois.push(p);}}
   const n=lat.length,m=eA.length;if(!m)return null;
-  const g={n,m,lat:Float64Array.from(lat),lon:Float64Array.from(lon),adj,eA:Int32Array.from(eA),eB:Int32Array.from(eB),eL:Float64Array.from(eL),eW:Int32Array.from(eW),ways,pois,grid:new Map(),eG:new Uint8Array(m),major:[],stamp:new Int32Array(m)};
+  const aS=new Int32Array(n+1);for(let s=0;s<m;s++){aS[eA[s]+1]++;aS[eB[s]+1]++;}for(let i=0;i<n;i++)aS[i+1]+=aS[i];const fill=aS.slice(0,n),aE=new Int32Array(2*m);for(let s=0;s<m;s++){aE[fill[eA[s]]++]=s;aE[fill[eB[s]]++]=s;}
+  const g={n,m,lat:Float64Array.from(lat),lon:Float64Array.from(lon),aS,aE,eA:Int32Array.from(eA),eB:Int32Array.from(eB),eL:Float64Array.from(eL),eW:Int32Array.from(eW),ways,pois,grid:new Map(),eG:new Uint8Array(m),major:[],stamp:new Int32Array(m)};
   for(let s=0;s<m;s++){const a=g.eA[s],b=g.eB[s];g.eG[s]=ways[g.eW[s]].g;if(g.eG[s]<=3)g.major.push(s);
     const i0=Math.floor(Math.min(g.lat[a],g.lat[b])/CELL),i1=Math.floor(Math.max(g.lat[a],g.lat[b])/CELL),j0=Math.floor(Math.min(g.lon[a],g.lon[b])/CELL),j1=Math.floor(Math.max(g.lon[a],g.lon[b])/CELL);
     for(let i=i0;i<=i1;i++)for(let j=j0;j<=j1;j++){const k=ckey(i,j);let c=g.grid.get(k);if(!c){c=[];g.grid.set(k,c);}c.push(s);}}
@@ -219,7 +220,18 @@ function buildGraph(regions){
   for(const p of pois)names.push({n:p.n,lat:p.lat,lon:p.lon,k:p.k});
   names.forEach(x=>x.q=normAr(x.n));g.names=names;
   return g;}
-async function loadGraph(){const regs=await idbAll('r')||[];G=regs.length?buildGraph(regs):null;reqDraw();updatePanel();}
+const REC=new Map();let activeKey='',loadChain=Promise.resolve();
+function nearBB(bb,p,m){return p.lat>=bb[0]-m&&p.lat<=bb[2]+m&&p.lon>=bb[1]-m&&p.lon<=bb[3]+m;}
+function activePts(){const p=[];if(S.pos)p.push(S.pos);if(S.nav)p.push(S.nav.dest);if(S.plan)p.push(S.plan.dest);if(!S.nav)p.push({lat:S.view.lat,lon:S.view.lon});return p;}
+function loadGraph(force,pts){loadChain=loadChain.then(()=>loadGraphNow(force,pts)).catch(e=>console.error(e));return loadChain;}
+async function loadGraphNow(force,pts){pts=pts||activePts();
+  const sel=S.regions.filter(m=>m.ways>0&&(m.kind==='nat'||pts.some(p=>nearBB(m.bbox,p,m.kind==='det'?0.12:0.05))));
+  sel.sort((a,b)=>(a.kind==='nat')-(b.kind==='nat'));const key=sel.map(m=>m.id).join(',');
+  if(!force&&key===activeKey)return;activeKey=key;
+  for(const id of [...REC.keys()])if(!sel.some(m=>m.id===id))REC.delete(id);
+  const recs=[];for(const m of sel){let r=REC.get(m.id);if(!r){r=await idbGet('r',m.id);if(r)REC.set(m.id,r);}if(r)recs.push(r);}
+  await new Promise(r=>setTimeout(r,0));G=recs.length?buildGraph(recs):null;reqDraw();updatePanel();}
+let areaT=null;function scheduleArea(){clearTimeout(areaT);areaT=setTimeout(()=>{if(!S.nav&&S.view.z>=11)loadGraph();},900);}
 function wayOf(s){return G.ways[G.eW[s]];}
 function costSeg(s,dir,mode){const w=G.ways[G.eW[s]],L=G.eL[s];
   if(mode==='car'){if(!w.car)return Infinity;if(w.o!==0&&w.o!==dir)return Infinity;return L/w.cs*(w.priv?5:1);}
@@ -249,14 +261,14 @@ function astar(src,dst,mode,pen,heading){
   if(ss===ts){const dir=dst.t>=src.t?1:-1;const c=costSeg(ss,dir,mode);if(isFinite(c)){best=c*Math.abs(dst.t-src.t)+hp(dir);bestNode=-9;}}
   while(H.size){if(H.top()>=best)break;const u=H.pop();if(closed[u])continue;closed[u]=1;const gu=g[u];
     const te=tgt.get(u);if(te!==undefined&&gu+te<best){best=gu+te;bestNode=u;}
-    const A=G.adj[u];for(let q=0;q<A.length;q++){const e=A[q];const dir=G.eA[e]===u?1:-1;const v=dir>0?G.eB[e]:G.eA[e];if(closed[v])continue;
+    for(let q=G.aS[u],qe=G.aS[u+1];q<qe;q++){const e=G.aE[q];const dir=G.eA[e]===u?1:-1;const v=dir>0?G.eB[e]:G.eA[e];if(closed[v])continue;
       let c=costSeg(e,dir,mode);if(!isFinite(c))continue;if(pen){const f=pen.get(e);if(f)c*=f;}const ng=gu+c;if(ng<g[v]){g[v]=ng;pe[v]=e;H.push(ng+h(v),v);}}}
   if(!isFinite(best))return null;
   const E=[];let startDir=dst.t>=src.t?1:-1;
   if(bestNode>=0){let u=bestNode;while(pe[u]>=0){const e=pe[u];const dir=G.eB[e]===u?1:-1;E.push([e,dir]);u=dir>0?G.eA[e]:G.eB[e];}startDir=pe[u]===-3?1:-1;E.reverse();}
   return {E,startDir,endNode:bestNode};}
 function computeRoute(from,to,mode,opt){opt=opt||{};if(!G)return null;
-  const src=snap(from,mode,opt.maxSnap||400),dst=snap(to,mode,1500);if(!src||!dst)return null;
+  const src=snap(from,mode,opt.maxSnap||1500),dst=snap(to,mode,3000);if(!src||!dst)return null;
   const r=astar(src,dst,mode,opt.pen,opt.heading);if(!r)return null;
   const Pt=[],Wy=[],Nd=[],Sg=[];
   const push=(la,lo,nd)=>{const L=Pt.length;if(L&&havLL(Pt[L-1].lat,Pt[L-1].lon,la,lo)<0.3){if(nd>=0)Nd[L-1]=nd;return false;}Pt.push({lat:la,lon:lo});Nd.push(nd);return true;};
@@ -269,11 +281,11 @@ function computeRoute(from,to,mode,opt){opt=opt||{};if(!G)return null;
   if(Pt.length<2){Pt.push({lat:dst.lat,lon:dst.lon});Nd.push(-1);seg(G.eW[dst.s],dst.s);}
   const cum=[0];let time=0;for(let i=1;i<Pt.length;i++){const L=hav(Pt[i-1],Pt[i]);cum.push(cum[i-1]+L);const w=G.ways[Wy[i-1]];time+=mode==='car'?L/w.cs*(w.priv?3:1):L/WALK_V*w.wf;}
   const rt={P:Pt,W:Wy,N:Nd,S:Sg,cum,total:cum[cum.length-1],mode,dest:{lat:to.lat,lon:to.lon,name:to.name},E:r.E.map(x=>x[0])};
-  rt.steps=buildSteps(rt);rt.time=time+rt.steps.length*P().turnDelay;rt.via=viaNames(rt);return rt;}
+  rt.Wo=Wy.map(i=>G.ways[i]);rt.startGap=src.d;rt.endGap=dst.d;rt.steps=buildSteps(rt);rt.time=time+rt.steps.length*P().turnDelay;rt.via=viaNames(rt);return rt;}
 function posAt(rt,s){const c=rt.cum,Pt=rt.P;if(s<=0)return Pt[0];if(s>=rt.total)return Pt[Pt.length-1];let lo=0,hi=c.length-1;while(hi-lo>1){const m=(lo+hi)>>1;if(c[m]<=s)lo=m;else hi=m;}
   const f=(s-c[lo])/((c[hi]-c[lo])||1);return {lat:Pt[lo].lat+f*(Pt[hi].lat-Pt[lo].lat),lon:Pt[lo].lon+f*(Pt[hi].lon-Pt[lo].lon)};}
 function streetName(w){if(!w)return '';if(w.n)return w.n;return {footway:'الممرّ',path:'الممرّ',pedestrian:'الممرّ',steps:'الدرج',service:'الطريق الفرعي',track:'المسلك',motorway:'الطريق السيارة',motorway_link:'منفذ الطريق السيارة',trunk_link:'المنفذ',primary_link:'المنفذ',secondary_link:'المنفذ'}[w.h]||'';}
-function hasExit(nd,mode){for(const e of G.adj[nd]){const w=wayOf(e);if(w.r)continue;const dir=G.eA[e]===nd?1:-1;if(isFinite(costSeg(e,dir,mode)))return true;}return false;}
+function hasExit(nd,mode){for(let q=G.aS[nd];q<G.aS[nd+1];q++){const e=G.aE[q];const w=wayOf(e);if(w.r)continue;const dir=G.eA[e]===nd?1:-1;if(isFinite(costSeg(e,dir,mode)))return true;}return false;}
 function turnType(a){const x=Math.abs(a);return x<25?'continue':x<50?'slight':x<125?'turn':x<165?'sharp':'uturn';}
 function buildSteps(rt){const {P:Pt,W:Wy,N:Nd,cum,mode}=rt;const way=i=>G.ways[Wy[i]];const key=i=>{const w=way(i);return w.n?'N'+w.n:'W'+Wy[i];};
   const steps=[{type:'depart',at:0,street:streetName(way(0)),brg:bearing(Pt[0],posAt(rt,Math.min(25,rt.total)))}];
@@ -282,7 +294,7 @@ function buildSteps(rt){const {P:Pt,W:Wy,N:Nd,cum,mode}=rt;const way=i=>G.ways[W
       const after=m+1<Wy.length?way(m+1):null;steps.push({type:'round',exit:Math.max(1,ex),at:s,street:streetName(after)});b=m+1;continue;}
     if(w2.r)continue;
     const a1=bearing(posAt(rt,Math.max(0,s-20)),posAt(rt,s)),a2=bearing(posAt(rt,s),posAt(rt,Math.min(rt.total,s+20)));const ang=norm180(a2-a1),tt=turnType(ang);
-    const changed=key(b)!==key(b-1),junction=Nd[b]>=0&&G.adj[Nd[b]].length>2;
+    const changed=key(b)!==key(b-1),junction=Nd[b]>=0&&G.aS[Nd[b]+1]-G.aS[Nd[b]]>2;
     if(changed){if(tt==='continue'&&(!w2.n||w2.n===w1.n))continue;}
     else if(!(junction&&Math.abs(ang)>=45))continue;
     const last=steps[steps.length-1];if(s-last.at<6&&last.type!=='depart'&&last.type!=='round'){last.ang=norm180((last.ang||0)+ang);last.type=turnType(last.ang);last.street=streetName(w2);continue;}
@@ -308,23 +320,180 @@ const OVERPASS=['https://overpass-api.de/api/interpreter','https://overpass.kumi
 const HW='motorway|motorway_link|trunk|trunk_link|primary|primary_link|secondary|secondary_link|tertiary|tertiary_link|unclassified|residential|living_street|road|service|track|pedestrian|footway|path|steps|cycleway';
 const nameOf=t=>t['name:ar']||t.name||t['name:fr']||(t.ref?'الطريق '+t.ref:'');
 function poiKind(t){const a=t.amenity;if(a){return {pharmacy:'💊',hospital:'🏥',clinic:'🏥',doctors:'🩺',place_of_worship:'🕌',school:'🏫',university:'🎓',fuel:'⛽',cafe:'☕',restaurant:'🍽️',fast_food:'🍔',bank:'🏦',atm:'🏧',police:'🚓',post_office:'📮',townhall:'🏛️',marketplace:'🛒',parking:'🅿️'}[a]||'📍';}
-  if(t.shop)return '🛍️';if(t.tourism)return '🏨';if(t.place)return '🏘️';if(t.office)return '🏢';if(t.healthcare)return '🏥';return null;}
+  if(t.shop)return '🛍️';if(t.tourism)return '🏨';if(t.place)return (t.place==='city'||t.place==='town')?'🏙️':'🏘️';if(t.office)return '🏢';if(t.healthcare)return '🏥';return null;}
+function wayAttrs(t){const ow=t.oneway;let o=0;if(ow==='yes'||ow==='1'||ow==='true')o=1;else if(ow==='-1'||ow==='reverse')o=-1;
+  const r=(t.junction==='roundabout'||t.junction==='circular')?1:0;if((r||t.highway==='motorway')&&ow!=='no'&&!o)o=1;
+  let a=0;const acc=t.access,mv=t.motor_vehicle||t.motorcar||t.vehicle;
+  if(FOOT_ONLY.has(t.highway)||mv==='no'||(acc==='no'&&mv!=='yes'))a|=1;if(t.foot==='no'||(acc==='no'&&t.foot!=='yes'))a|=2;if(acc==='private'||acc==='destination')a|=4;
+  const ms=parseInt(t.maxspeed,10);return {h:t.highway,n:nameOf(t),o,r,a,ms:ms>0?ms:0};}
 function parseOverpass(js){const nodes=new Map(),ways=[],pois=[];
   for(const e of js.elements||[]){
     if(e.type==='node'){if(e.lat!=null)nodes.set(e.id,[e.lat,e.lon]);if(e.tags&&nameOf(e.tags)){const k=poiKind(e.tags);if(k)pois.push({n:nameOf(e.tags),lat:e.lat,lon:e.lon,k});}}
-    else if(e.type==='way'&&e.tags&&e.tags.highway&&e.nodes){const t=e.tags;if(t.area==='yes')continue;const ow=t.oneway;let o=0;
-      if(ow==='yes'||ow==='1'||ow==='true')o=1;else if(ow==='-1'||ow==='reverse')o=-1;
-      const r=(t.junction==='roundabout'||t.junction==='circular')?1:0;if((r||t.highway==='motorway')&&ow!=='no'&&!o)o=1;
-      let a=0;const acc=t.access,mv=t.motor_vehicle||t.motorcar||t.vehicle;
-      if(FOOT_ONLY.has(t.highway)||mv==='no'||(acc==='no'&&mv!=='yes'))a|=1;if(t.foot==='no'||(acc==='no'&&t.foot!=='yes'))a|=2;if(acc==='private'||acc==='destination')a|=4;
-      const ms=parseInt(t.maxspeed,10);ways.push({id:e.id,h:t.highway,n:nameOf(t),o,r,a,ms:ms>0?ms:0,nd:e.nodes});}}
+    else if(e.type==='way'&&e.tags&&e.tags.highway&&e.nodes){if(e.tags.area==='yes')continue;const at=wayAttrs(e.tags);at.id=e.id;at.nd=e.nodes;ways.push(at);}}
   const used=new Set();ways.forEach(w=>w.nd.forEach(id=>used.add(id)));const ids=[],lat=[],lon=[];
   for(const id of used){const v=nodes.get(id);if(v){ids.push(id);lat.push(v[0]);lon.push(v[1]);}}
   return {ways,nodes:{ids,lat,lon},pois};}
-async function fetchRoads(bb,onMsg){const q=`[out:json][timeout:180][bbox:${bb[0]},${bb[1]},${bb[2]},${bb[3]}];way["highway"~"^(${HW})$"];out body qt;>;out skel qt;node[~"^(amenity|shop|tourism|place|office|healthcare)$"~"."][name];out qt;`;
-  let lastErr='';for(const url of OVERPASS){try{onMsg&&onMsg('جارٍ تحميل الشوارع… (قد يستغرق دقيقة)');const r=await fetch(url,{method:'POST',body:'data='+encodeURIComponent(q),headers:{'Content-Type':'application/x-www-form-urlencoded'}});
-      if(!r.ok){lastErr='HTTP '+r.status;continue;}onMsg&&onMsg('جارٍ معالجة البيانات…');const js=await r.json();return parseOverpass(js);}catch(e){lastErr=e.message||String(e);}}
+async function overpass(q,onMsg,label){let lastErr='';
+  for(let attempt=0;attempt<3;attempt++){for(const url of OVERPASS){try{onMsg&&onMsg(label||'جارٍ تحميل الشوارع…');
+      const r=await fetch(url,{method:'POST',body:'data='+encodeURIComponent(q),headers:{'Content-Type':'application/x-www-form-urlencoded'}});
+      if(r.status===429||r.status===504){lastErr='الخادم مشغول';continue;}if(!r.ok){lastErr='HTTP '+r.status;continue;}return await r.json();}catch(e){lastErr=e.message||String(e);}}
+    onMsg&&onMsg('الخادم مشغول، إعادة المحاولة بعد قليل…');await new Promise(r=>setTimeout(r,15000*(attempt+1)));}
   throw new Error(lastErr||'تعذّر الاتصال');}
+async function fetchRoads(bb,onMsg){const q=`[out:json][timeout:180][bbox:${bb[0]},${bb[1]},${bb[2]},${bb[3]}];way["highway"~"^(${HW})$"];out body qt;>;out skel qt;node[~"^(amenity|shop|tourism|place|office|healthcare)$"~"."][name];out qt;`;
+  const js=await overpass(q,onMsg,'جارٍ تحميل الشوارع… (قد يستغرق دقيقة)');onMsg&&onMsg('جارٍ معالجة البيانات…');return parseOverpass(js);}
+/* ---- تونس كاملة ---- */
+const NAT_HW='motorway|motorway_link|trunk|trunk_link|primary|primary_link|secondary|secondary_link|tertiary|tertiary_link|unclassified';
+const HW_SET=new Set(HW.split('|')),NAT_SET=new Set(NAT_HW.split('|'));
+const GOVS=[['TN-11','تونس',1],['TN-12','أريانة',1],['TN-13','بن عروس',1],['TN-14','منوبة',1],['TN-21','نابل',1],['TN-22','زغوان'],['TN-23','بنزرت'],['TN-31','باجة'],['TN-32','جندوبة'],['TN-33','الكاف'],['TN-34','سليانة'],['TN-41','القيروان'],['TN-42','القصرين'],['TN-43','سيدي بوزيد'],['TN-51','سوسة',1],['TN-52','المنستير',1],['TN-53','المهدية'],['TN-61','صفاقس',1],['TN-71','قفصة'],['TN-72','توزر'],['TN-73','قبلي'],['TN-81','قابس'],['TN-82','مدنين'],['TN-83','تطاوين']];
+const govName=c=>(GOVS.find(g=>g[0]===c)||[0,c])[1];
+function natCells(){const L=[];for(let i=30;i<=37;i++)for(let j=7;j<=11;j++)L.push({id:`n_${i}_${j}`,bb:[i,j,i+1,j+1]});return L;}
+async function govCells(code,msg){let bb=load('gbb_'+code,null);
+  if(!bb){const js=await overpass(`[out:json][timeout:60];rel["ISO3166-2"="${code}"];out bb;`,msg,'جارٍ تحديد حدود الولاية…');const b=js.elements&&js.elements[0]&&js.elements[0].bounds;if(!b)throw new Error('لم أجد حدود الولاية');bb=[b.minlat,b.minlon,b.maxlat,b.maxlon];store('gbb_'+code,bb);}
+  const sz=(GOVS.find(g=>g[0]===code)||[])[2]?0.1:0.25,L=[];
+  for(let a=Math.floor(bb[0]/sz);a*sz<bb[2];a++)for(let b=Math.floor(bb[1]/sz);b*sz<bb[3];b++)L.push({id:`d_${code}_${a}_${b}`,bb:[+(a*sz).toFixed(3),+(b*sz).toFixed(3),+((a+1)*sz).toFixed(3),+((b+1)*sz).toFixed(3)]});return L;}
+function pointSeg(p,a,b){const A=local(a,p),B=local(b,p);const dx=B.x-A.x,dy=B.y-A.y,L=dx*dx+dy*dy;let t=L?-(A.x*dx+A.y*dy)/L:0;t=Math.max(0,Math.min(1,t));return Math.hypot(A.x+t*dx,A.y+t*dy);}
+function simplifyChunk(d,bb,tol){const L=new Map();d.nodes.ids.forEach((id,i)=>L.set(id,i));const use=new Map();d.ways.forEach(w=>w.nd.forEach(id=>use.set(id,(use.get(id)||0)+1)));
+  const P=i=>({lat:d.nodes.lat[i],lon:d.nodes.lon[i]});
+  const dp=(nd,a,b,keep)=>{const A=L.get(nd[a]),B=L.get(nd[b]);let md=0,mk=-1;for(let k=a+1;k<b;k++){const i=L.get(nd[k]);if(i===undefined)continue;const dd=pointSeg(P(i),P(A),P(B));if(dd>md){md=dd;mk=k;}}
+    if(md>tol&&mk>0){keep[mk]=1;dp(nd,a,mk,keep);dp(nd,mk,b,keep);}};
+  for(const w of d.ways){const nd=w.nd;if(nd.length<3)continue;const keep=new Uint8Array(nd.length);keep[0]=keep[nd.length-1]=1;
+    for(let k=1;k<nd.length-1;k++){const i=L.get(nd[k]);if(i===undefined){keep[k]=1;continue;}const la=d.nodes.lat[i],lo=d.nodes.lon[i];if(use.get(nd[k])>1||!(la>bb[0]&&la<bb[2]&&lo>bb[1]&&lo<bb[3]))keep[k]=1;}
+    let a=0;for(let b=1;b<nd.length;b++){if(!keep[b])continue;if(b-a>1&&L.has(nd[a])&&L.has(nd[b]))dp(nd,a,b,keep);a=b;}w.nd=nd.filter((_,k)=>keep[k]);}
+  const used=new Set();d.ways.forEach(w=>w.nd.forEach(id=>used.add(id)));const ids=[],lat=[],lon=[];d.nodes.ids.forEach((id,i)=>{if(used.has(id)){ids.push(id);lat.push(d.nodes.lat[i]);lon.push(d.nodes.lon[i]);}});d.nodes={ids,lat,lon};}
+let DL=null;
+async function runDownload(tasks,kind,gov,msg,bar){if(DL)return toast('يوجد تحميل جارٍ');DL={stop:false};keepAwake();let done=0,fail=0;
+  try{for(const t of tasks){if(DL.stop)break;done++;if(S.regions.some(r=>r.id===t.id)){continue;}
+      const label=(kind==='nat'?'تونس — الطرق الرئيسية':'ولاية '+govName(gov))+': الجزء '+done+' من '+tasks.length;msg(label);
+      const [s,w,n,e]=t.bb;let q;
+      if(kind==='nat')q=`[out:json][timeout:300];area["ISO3166-1"="TN"][admin_level=2]->.tn;way["highway"~"^(${NAT_HW})$"](area.tn)(${s},${w},${n},${e});out body qt;>;out skel qt;node["place"~"^(city|town|village|suburb)$"](area.tn)(${s},${w},${n},${e});out qt;`;
+      else q=`[out:json][timeout:300];area["ISO3166-2"="${gov}"]->.g;way["highway"~"^(${HW})$"](area.g)(${s},${w},${n},${e});out body qt;>;out skel qt;node[~"^(amenity|shop|tourism|place|office|healthcare)$"~"."][name](area.g)(${s},${w},${n},${e});out qt;`;
+      let js;try{js=await overpass(q,null);}catch(err){fail++;continue;}
+      const d=parseOverpass(js);js=null;if(kind==='nat'&&d.ways.length)simplifyChunk(d,t.bb,8);
+      const meta={id:t.id,kind,gov,name:kind==='nat'?'تونس':govName(gov),bbox:t.bb,t:Date.now(),ways:d.ways.length,pois:d.pois.length};
+      if(d.ways.length){Object.assign(d,{id:t.id,kind,gov,name:meta.name,bbox:t.bb,t:meta.t});await idbPut('r',t.id,d);}
+      S.regions.push(meta);store('regions',S.regions);if(bar)bar(done/tasks.length);}
+  }finally{const stopped=DL.stop;DL=null;if(!S.nav){try{S.wake&&S.wake.release();}catch(e){}S.wake=null;}
+    await loadGraph(true);msg(stopped?'تم الإيقاف — يمكنك الإكمال لاحقًا من حيث توقفت':fail?`اكتمل مع ${fail} جزء لم يُحمَّل — اضغط «إكمال» لإعادة المحاولة`:'✅ اكتمل التحميل');}}
+async function removeKind(filter,noReload){const del=S.regions.filter(filter);for(const r of del){await idbDel('r',r.id);REC.delete(r.id);}S.regions=S.regions.filter(r=>!filter(r));store('regions',S.regions);if(!noReload)await loadGraph(true);}
+
+/* ====================== قارئ ملف خريطة تونس (OSM PBF) ====================== */
+const PBF_URL='https://download.geofabrik.de/africa/tunisia-latest.osm.pbf';
+const POI_KEYS=new Set(['amenity','shop','tourism','place','office','healthcare']);
+const BIG_PLACE=new Set(['city','town','village','suburb']);
+const tdec=new TextDecoder();
+class PB{constructor(b,p,e){this.b=b;this.p=p;this.e=e;}
+  v(){const b=this.b;let p=this.p,c=b[p++],r=c&127;if(c<128){this.p=p;return r;}let m=128;do{c=b[p++];r+=(c&127)*m;m*=128;}while(c>=128);this.p=p;return r;}
+  s(){const n=this.v();return n%2?-(n+1)/2:n/2;}
+  sub(){const l=this.v(),a=this.p;this.p+=l;return [a,a+l];}
+  skip(w){if(w===0)this.v();else if(w===2){const l=this.v();this.p+=l;}else if(w===1)this.p+=8;else if(w===5)this.p+=4;else throw new Error('ملف PBF غير صالح');}}
+const fread=async(file,off,len)=>new Uint8Array(await file.slice(off,off+len).arrayBuffer());
+async function inflate(u8){const out=await new Response(new Blob([u8]).stream().pipeThrough(new DecompressionStream('deflate'))).arrayBuffer();return new Uint8Array(out);}
+async function pbfIndex(file,prog){const L=[];let off=0;const size=file.size;
+  while(off<size){const hd=await fread(file,off,4);if(hd.length<4)break;const hl=((hd[0]<<24)>>>0)+(hd[1]<<16)+(hd[2]<<8)+hd[3];if(hl<=0||hl>65536)throw new Error('الملف ليس خريطة PBF صالحة');
+    const hb=await fread(file,off+4,hl),h=new PB(hb,0,hl);let type='',ds=0;
+    while(h.p<h.e){const k=h.v(),f=k>>>3,w=k&7;if(f===1&&w===2){const [a,b]=h.sub();type=tdec.decode(hb.subarray(a,b));}else if(f===3&&w===0)ds=h.v();else h.skip(w);}
+    if(type==='OSMData')L.push([off+4+hl,ds]);off+=4+hl+ds;if(L.length%50===0)prog&&prog(off/size);}
+  if(!L.length)throw new Error('الملف لا يحتوي على بيانات خريطة');return L;}
+async function pbfBlock(file,off,len){const bb=await fread(file,off,len),p=new PB(bb,0,len);let raw=null,z=null;
+  while(p.p<p.e){const k=p.v(),f=k>>>3,w=k&7;if(f===1&&w===2){const [a,b]=p.sub();raw=bb.subarray(a,b);}else if(f===3&&w===2){const [a,b]=p.sub();z=bb.subarray(a,b);}else if(f>=4&&w===2)throw new Error('نوع ضغط غير مدعوم في الملف');else p.skip(w);}
+  const buf=raw||(z?await inflate(z):null);if(!buf)return null;
+  const q=new PB(buf,0,buf.length),B={buf,st:null,groups:[],gran:100,lato:0,lono:0};
+  while(q.p<q.e){const k=q.v(),f=k>>>3,w=k&7;if(f===1&&w===2)B.st=q.sub();else if(f===2&&w===2)B.groups.push(q.sub());else if(f===17&&w===0)B.gran=q.v();else if(f===19&&w===0){B.lato=q.v();if(B.lato>1e15)B.lato=0;}else if(f===20&&w===0){B.lono=q.v();if(B.lono>1e15)B.lono=0;}else q.skip(w);}
+  const so=[],se=[];if(B.st){const t=new PB(buf,B.st[0],B.st[1]);while(t.p<t.e){const k=t.v(),f=k>>>3,w=k&7;if(f===1&&w===2){const [a,b]=t.sub();so.push(a);se.push(b);}else t.skip(w);}}
+  const cache=new Array(so.length);B.str=i=>{let x=cache[i];if(x===undefined){x=tdec.decode(buf.subarray(so[i],se[i]));cache[i]=x;}return x;};return B;}
+function growF64(a,n){if(n<=a.length)return a;const b=new Float64Array(Math.max(n,a.length*2));b.set(a);return b;}
+async function importPBF(file,msg,bar){const T0=Date.now();
+  msg('المرحلة 1 من 4: فهرسة الملف…');const blocks=await pbfIndex(file,f=>bar(f*0.05));
+  // ---- المرحلة 2: قراءة الطرق ----
+  const W={id:[],h:[],n:[],o:[],r:[],a:[],ms:[],rs:[],re:[]};const names=[''],nameIx=new Map([['',0]]);let refs=new Float64Array(1<<20),RN=0;const nodeBlocks=[];
+  for(let bi=0;bi<blocks.length;bi++){const [off,len]=blocks[bi];const B=await pbfBlock(file,off,len);if(!B)continue;const buf=B.buf;let hasN=false;
+    for(const [gs,ge] of B.groups){const g=new PB(buf,gs,ge);
+      while(g.p<g.e){const k=g.v(),f=k>>>3,w=k&7;
+        if((f===1||f===2)&&w===2){hasN=true;g.skip(w);continue;}
+        if(f!==3||w!==2){g.skip(w);continue;}
+        const [ws,we]=g.sub(),p=new PB(buf,ws,we);let id=0,ks=null,vs=null,rs=null;
+        while(p.p<p.e){const kk=p.v(),ff=kk>>>3,ww=kk&7;if(ff===1&&ww===0)id=p.v();else if(ff===2&&ww===2)ks=p.sub();else if(ff===3&&ww===2)vs=p.sub();else if(ff===8&&ww===2)rs=p.sub();else p.skip(ww);}
+        if(!ks||!vs||!rs)continue;const K=[],V=[],kp=new PB(buf,ks[0],ks[1]),vp=new PB(buf,vs[0],vs[1]);while(kp.p<kp.e){K.push(kp.v());V.push(vp.v());}
+        let hw=null;for(let i=0;i<K.length;i++)if(B.str(K[i])==='highway'){hw=B.str(V[i]);break;}
+        if(!hw||!HW_SET.has(hw))continue;const t={};for(let i=0;i<K.length;i++)t[B.str(K[i])]=B.str(V[i]);if(t.area==='yes')continue;
+        const at=wayAttrs(t);let ni=nameIx.get(at.n);if(ni===undefined){ni=names.length;names.push(at.n);nameIx.set(at.n,ni);}
+        const start=RN,rp=new PB(buf,rs[0],rs[1]);let ref=0;while(rp.p<rp.e){ref+=rp.s();if(RN>=refs.length)refs=growF64(refs,RN+1);refs[RN++]=ref;}
+        if(RN-start<2){RN=start;continue;}
+        W.id.push(id);W.h.push(at.h);W.n.push(ni);W.o.push(at.o);W.r.push(at.r);W.a.push(at.a);W.ms.push(at.ms);W.rs.push(start);W.re.push(RN);}}
+    if(hasN)nodeBlocks.push(bi);
+    if(bi%20===0){bar(0.05+0.35*bi/blocks.length);msg('المرحلة 2 من 4: قراءة الطرق… '+W.id.length.toLocaleString('ar')+' طريق');await new Promise(r=>setTimeout(r,0));}}
+  if(!W.id.length)throw new Error('لم أجد طرقًا في الملف');
+  msg('تجهيز النقاط…');await new Promise(r=>setTimeout(r,0));
+  const need=refs.slice(0,RN).sort();let U=0;for(let i=0;i<need.length;i++)if(i===0||need[i]!==need[i-1])need[U++]=need[i];
+  const NEED=need.subarray(0,U);const refIdx=new Int32Array(RN);
+  for(let i=0;i<RN;i++){const x=refs[i];let lo=0,hi=U-1;while(lo<hi){const m=(lo+hi)>>1;if(NEED[m]<x)lo=m+1;else hi=m;}refIdx[i]=lo;}
+  refs=null;
+  // ---- المرحلة 3: إحداثيات النقاط والأماكن ----
+  const MISS=-2147483648,LAT=new Int32Array(U).fill(MISS),LON=new Int32Array(U);const pois=[];let ptr=0,last=-1;
+  const idxOf=id=>{if(id<last){let lo=0,hi=U;while(lo<hi){const m=(lo+hi)>>1;if(NEED[m]<id)lo=m+1;else hi=m;}ptr=lo;}last=id;while(ptr<U&&NEED[ptr]<id)ptr++;return ptr<U&&NEED[ptr]===id?ptr:-1;};
+  const onNode=(B,id,lat,lon,kvs)=>{const u=idxOf(id);if(u>=0){LAT[u]=Math.round(lat*1e7);LON[u]=Math.round(lon*1e7);}
+    if(kvs){let poi=false,named=false;for(let i=0;i<kvs.length;i+=2){const k=B.str(kvs[i]);if(POI_KEYS.has(k))poi=true;else if(k==='name'||k==='name:ar')named=true;}
+      if(poi&&named){const t={};for(let i=0;i<kvs.length;i+=2)t[B.str(kvs[i])]=B.str(kvs[i+1]);const k=poiKind(t);if(k)pois.push({n:nameOf(t),lat,lon,k,big:BIG_PLACE.has(t.place)});}}};
+  for(let q=0;q<nodeBlocks.length;q++){const [off,len]=blocks[nodeBlocks[q]];const B=await pbfBlock(file,off,len);if(!B)continue;const buf=B.buf;
+    for(const [gs,ge] of B.groups){const g=new PB(buf,gs,ge);
+      while(g.p<g.e){const k=g.v(),f=k>>>3,w=k&7;
+        if(f===2&&w===2){const [ds,de]=g.sub(),p=new PB(buf,ds,de);let I=null,A=null,O=null,KV=null;
+          while(p.p<p.e){const kk=p.v(),ff=kk>>>3,ww=kk&7;if(ff===1&&ww===2)I=p.sub();else if(ff===8&&ww===2)A=p.sub();else if(ff===9&&ww===2)O=p.sub();else if(ff===10&&ww===2)KV=p.sub();else p.skip(ww);}
+          if(!I)continue;const ip=new PB(buf,I[0],I[1]),ap=new PB(buf,A[0],A[1]),op=new PB(buf,O[0],O[1]),kp=KV?new PB(buf,KV[0],KV[1]):null;let id=0,la=0,lo=0;
+          while(ip.p<ip.e){id+=ip.s();la+=ap.s();lo+=op.s();let kvs=null;
+            if(kp&&kp.p<kp.e){let kk=kp.v();if(kk!==0){kvs=[];while(kk!==0){kvs.push(kk,kp.v());kk=kp.p<kp.e?kp.v():0;}}}
+            onNode(B,id,(B.lato+B.gran*la)*1e-9,(B.lono+B.gran*lo)*1e-9,kvs);}}
+        else if(f===1&&w===2){const [ns,ne]=g.sub(),p=new PB(buf,ns,ne);let id=0,la=0,lo=0,ks=null,vs=null;
+          while(p.p<p.e){const kk=p.v(),ff=kk>>>3,ww=kk&7;if(ff===1&&ww===0)id=p.s();else if(ff===2&&ww===2)ks=p.sub();else if(ff===3&&ww===2)vs=p.sub();else if(ff===8&&ww===0)la=p.s();else if(ff===9&&ww===0)lo=p.s();else p.skip(ww);}
+          let kvs=null;if(ks&&vs){kvs=[];const a=new PB(buf,ks[0],ks[1]),b=new PB(buf,vs[0],vs[1]);while(a.p<a.e)kvs.push(a.v(),b.v());if(!kvs.length)kvs=null;}
+          onNode(B,id,(B.lato+B.gran*la)*1e-9,(B.lono+B.gran*lo)*1e-9,kvs);}
+        else g.skip(w);}}
+    if(q%20===0){bar(0.4+0.3*q/nodeBlocks.length);msg('المرحلة 3 من 4: قراءة الإحداثيات والأماكن… '+Math.round(100*q/nodeBlocks.length)+'%');await new Promise(r=>setTimeout(r,0));}}
+  // ---- المرحلة 4: تقسيم الخريطة وحفظها ----
+  msg('المرحلة 4 من 4: تقسيم الخريطة وحفظها على الهاتف…');await new Promise(r=>setTimeout(r,0));
+  const NW=W.id.length,det=new Map(),nat=new Map();const add=(M,key,w)=>{let a=M.get(key);if(!a){a=[];M.set(key,a);}if(a[a.length-1]!==w)a.push(w);};
+  for(let w=0;w<NW;w++){const isNat=NAT_SET.has(W.h[w]);const seen=new Set(),seenN=new Set();
+    for(let r=W.rs[w];r<W.re[w];r++){const u=refIdx[r];if(LAT[u]===MISS)continue;const la=LAT[u]/1e7,lo=LON[u]/1e7;
+      const dk=Math.floor(la*10)*10000+Math.floor(lo*10);if(!seen.has(dk)){seen.add(dk);add(det,dk,w);}
+      if(isNat){const nk=Math.floor(la)*10000+Math.floor(lo);if(!seenN.has(nk)){seenN.add(nk);add(nat,nk,w);}}}}
+  const poiDet=new Map(),poiNat=new Map();for(const p of pois){const dk=Math.floor(p.lat*10)*10000+Math.floor(p.lon*10);(poiDet.get(dk)||poiDet.set(dk,[]).get(dk)).push(p);
+    if(p.big){const nk=Math.floor(p.lat)*10000+Math.floor(p.lon);(poiNat.get(nk)||poiNat.set(nk,[]).get(nk)).push(p);}}
+  const mkRec=(list,P)=>{const ways=[],nodes=new Map();for(const w of list){const nd=[];for(let r=W.rs[w];r<W.re[w];r++){const u=refIdx[r];if(LAT[u]===MISS)continue;nd.push(NEED[u]);nodes.set(u,1);}
+      if(nd.length>1)ways.push({id:W.id[w],h:W.h[w],n:names[W.n[w]],o:W.o[w],r:W.r[w],a:W.a[w],ms:W.ms[w],nd});}
+    const ids=[],lat=[],lon=[];for(const u of nodes.keys()){ids.push(NEED[u]);lat.push(LAT[u]/1e7);lon.push(LON[u]/1e7);}
+    return {ways,nodes:{ids,lat,lon},pois:(P||[]).map(p=>({n:p.n,lat:p.lat,lon:p.lon,k:p.k}))};};
+  // احذف خرائط تونس السابقة (يبقى ما حمّلته كمنطقة صغيرة)
+  await removeKind(x=>x.kind==='nat'||x.kind==='det',true);
+  const metas=[];let done=0;const total=det.size+nat.size;
+  for(const [key,list] of nat){const i=Math.floor(key/10000),j=key-i*10000,bb=[i,j,i+1,j+1],id=`pn_${i}_${j}`;const rec=mkRec(list,poiNat.get(key));simplifyChunk(rec,bb,8);
+    Object.assign(rec,{id,kind:'nat',name:'تونس',bbox:bb,t:Date.now()});await idbPut('r',id,rec);metas.push({id,kind:'nat',name:'تونس',bbox:bb,t:rec.t,ways:rec.ways.length,pois:rec.pois.length});
+    if(++done%10===0){bar(0.7+0.3*done/total);await new Promise(r=>setTimeout(r,0));}}
+  for(const [key,list] of det){const i=Math.floor(key/10000),j=key-i*10000,bb=[i/10,j/10,(i+1)/10,(j+1)/10].map(x=>+x.toFixed(2)),id=`px_${i}_${j}`;const rec=mkRec(list,poiDet.get(key));
+    Object.assign(rec,{id,kind:'det',gov:'PBF',name:'تونس',bbox:bb,t:Date.now()});await idbPut('r',id,rec);metas.push({id,kind:'det',gov:'PBF',name:'تونس',bbox:bb,t:rec.t,ways:rec.ways.length,pois:rec.pois.length});
+    if(++done%10===0){bar(0.7+0.3*done/total);msg('المرحلة 4 من 4: حفظ الخريطة… '+Math.round(100*done/total)+'%');await new Promise(r=>setTimeout(r,0));}}
+  S.regions=S.regions.concat(metas);store('regions',S.regions);store('pbfInfo',{t:Date.now(),name:file.name||'tunisia-latest.osm.pbf',size:file.size,ways:NW,pois:pois.length});
+  await loadGraph(true);bar(1);msg('✅ اكتملت الخريطة: '+NW.toLocaleString('ar')+' طريق و'+pois.length.toLocaleString('ar')+' مكان — في '+Math.round((Date.now()-T0)/1000)+' ثانية');}
+async function fetchPBF(msg,bar){const r=await fetch(PBF_URL);if(!r.ok)throw new Error('HTTP '+r.status);const tot=+r.headers.get('content-length')||0;const rd=r.body.getReader(),parts=[];let got=0;
+  for(;;){const {done,value}=await rd.read();if(done)break;parts.push(value);got+=value.length;if(parts.length%30===0){msg('تحميل ملف الخريطة… '+(got/1048576).toFixed(1)+(tot?' / '+(tot/1048576).toFixed(0):'')+' ميغابايت');tot&&bar(got/tot);}}
+  return new File(parts,'tunisia-latest.osm.pbf');}
+function pbfSheet(){const info=load('pbfInfo',null);
+  openSheet(`<h2>📦 خريطة تونس الكاملة (ملف واحد)</h2><p class="sub">ملف OpenStreetMap لكل تونس من موقع Geofabrik (حوالي 80 ميغابايت). يقرؤه التطبيق على الهاتف ويحتفظ بكل الطرق والشوارع واتجاهات السير وأسماء المدن والأماكن، ثم يعمل كل شيء دون إنترنت.</p>
+  ${info?`<div class="item"><div class="t">✅ الخريطة مستوردة</div><div class="s">${Number(info.ways).toLocaleString('ar')} طريق · ${Number(info.pois).toLocaleString('ar')} مكان · ${new Date(info.t).toLocaleDateString('ar')}</div></div>`:''}
+  <div class="sub" id="iInfo" style="font-weight:700;color:var(--navy)"></div><div class="bar"><div id="iBar"></div></div>
+  <button class="btn" id="iNet">⬇️ تحميل الملف واستيراده (بالإنترنت)</button>
+  <button class="btn gold" id="iFile">📂 اختيار ملف موجود على الهاتف (.osm.pbf)</button><input type="file" id="iIn" accept=".pbf,.osm.pbf,application/octet-stream" style="display:none">
+  <a class="btn light" style="text-align:center;text-decoration:none" href="${PBF_URL}" target="_blank" rel="noopener">🔗 فتح رابط تنزيل الملف في المتصفح</a>
+  <p class="sub" style="margin-top:10px">• أثناء المعالجة اترك الشاشة مفتوحة ولا تغلق التطبيق، فالمعالجة تأخذ بضع دقائق.<br>• يحتاج هاتفًا بذاكرة جيدة (4 جيغابايت أو أكثر يُفضَّل).<br>• الاستيراد يعوّض خرائط تونس المحمّلة سابقًا، أما المناطق الصغيرة فتبقى.<br>• لتحديث الخريطة لاحقًا أعد الاستيراد.</p>`);
+  const msg=t=>{if($('iInfo'))$('iInfo').textContent=t;},bar=f=>{if($('iBar'))$('iBar').style.width=Math.min(100,f*100)+'%';};
+  const lock=v=>['iNet','iFile'].forEach(id=>{if($(id))$(id).disabled=v;});
+  const run=async getFile=>{if(DL)return toast('يوجد تحميل جارٍ');if(!window.DecompressionStream){msg('❌ المتصفح قديم، حدّث Chrome');return;}
+    DL={stop:false};lock(true);keepAwake();
+    try{const f=await getFile();msg('بدء المعالجة…');await importPBF(f,msg,bar);toast('✅ خريطة تونس جاهزة دون إنترنت',4000);}
+    catch(e){console.error(e);const m=(e&&e.name==='RangeError')||/memory|allocation/i.test(e&&e.message)?'ذاكرة الهاتف غير كافية لمعالجة الملف كاملًا. استعمل التحميل حسب الولاية بدلًا منه.':(e&&e.message)||String(e);msg('❌ '+m);}
+    finally{DL=null;lock(false);if(!S.nav){try{S.wake&&S.wake.release();}catch(e){}S.wake=null;}}};
+  $('iNet').onclick=()=>{if(!navigator.onLine)return toast('يجب الاتصال بالإنترنت');run(async()=>{try{return await fetchPBF(msg,bar);}catch(e){throw new Error('تعذّر تحميل الملف من داخل التطبيق ('+(e.message||e)+'). اضغط «فتح رابط تنزيل الملف»، ثم «اختيار ملف موجود على الهاتف».');}});};
+  $('iFile').onclick=()=>$('iIn').click();
+  $('iIn').onchange=e=>{const f=e.target.files&&e.target.files[0];if(f)run(async()=>f);};}
 
 /* ====================== بلاطات الخريطة (اختيارية) ====================== */
 const TS=256,mem=new Map();let tilesShown=0;
@@ -394,7 +563,7 @@ function draw(){if(!W)return;ctx.setTransform(DPR,0,0,DPR,0,0);VC=project(S.view
   const N=S.nav;
   if(N&&N.kind==='road'){const r=N.rt;const done=[],todo=[];const cut=posAt(r,N.s);
     for(let i=0;i<r.P.length;i++){if(r.cum[i]<=N.s)done.push(r.P[i]);else todo.push(r.P[i]);}done.push(cut);todo.unshift(cut);
-    polyline(done,'#9AA7B6',6,{casing:'#fff'});polyline(todo,'#1B365D',7,{casing:'#fff'});polyline([r.P[r.P.length-1],r.dest],'#1B365D',2.5,{dash:[6,6]});
+    if(N.s<60&&S.pos&&(r.startGap||0)>15)polyline([S.pos,r.P[0]],'#1B365D',2.5,{dash:[6,6]});polyline(done,'#9AA7B6',6,{casing:'#fff'});polyline(todo,'#1B365D',7,{casing:'#fff'});polyline([r.P[r.P.length-1],r.dest],'#1B365D',2.5,{dash:[6,6]});
     const k=nextStep();if(k>0){const st=r.steps[k];if(st.type!=='arrive'){const s=toScr(st);ctx.beginPath();ctx.arc(s.x,s.y,8,0,7);ctx.fillStyle='#fff';ctx.fill();ctx.lineWidth=3.5;ctx.strokeStyle='#B8963E';ctx.stroke();}}
     pin(r.dest,'#A33A3A',r.dest.name);}
   if(N&&N.kind==='direct'){if(S.pos)polyline([S.pos,N.dest],'#1B365D',3,{dash:[10,8]});pin(N.dest,'#A33A3A',N.dest.name);}
@@ -404,7 +573,7 @@ function draw(){if(!W)return;ctx.setTransform(DPR,0,0,DPR,0,0);VC=project(S.view
   const m=mpp(),nice=[5,10,20,50,100,200,500,1000,2000,5000,10000,20000,50000,100000];const L=nice.find(v=>v/m>=60)||100000;$('scale').innerHTML=fmtD(L)+'<div style="width:'+Math.round(L/m)+'px"></div>';}
 
 /* ====================== لمس الخريطة ====================== */
-function setZoom(z,ax,ay){z=Math.max(3,Math.min(19,z));if(ax==null){S.view.z=z;reqDraw();return;}const g=toGeo(ax,ay);S.view.z=z;const a=project(g.lat,g.lon,z);const c=unproject(a.x-(ax-W/2),a.y-(ay-H/2),z);S.view.lat=c.lat;S.view.lon=c.lon;reqDraw();}
+function setZoom(z,ax,ay){z=Math.max(3,Math.min(19,z));if(ax==null){S.view.z=z;reqDraw();return;}scheduleArea();const g=toGeo(ax,ay);S.view.z=z;const a=project(g.lat,g.lon,z);const c=unproject(a.x-(ax-W/2),a.y-(ay-H/2),z);S.view.lat=c.lat;S.view.lon=c.lon;reqDraw();}
 function setFollow(v){S.follow=v;$('follow').classList.toggle('on',v);if(v&&S.pos){S.view.lat=S.pos.lat;S.view.lon=S.pos.lon;reqDraw();}}
 const ptr=new Map();let GS=null;
 cv.addEventListener('pointerdown',e=>{cv.setPointerCapture(e.pointerId);ptr.set(e.pointerId,{x:e.offsetX,y:e.offsetY});
@@ -413,7 +582,7 @@ cv.addEventListener('pointermove',e=>{if(!ptr.has(e.pointerId)||!GS)return;ptr.s
   if(GS.t==='pan'){const dx=e.offsetX-GS.sx,dy=e.offsetY-GS.sy;if(!GS.moved&&Math.hypot(dx,dy)>7){GS.moved=true;setFollow(false);}if(GS.moved){const c=unproject(GS.c.x-dx,GS.c.y-dy,S.view.z);S.view.lat=c.lat;S.view.lon=c.lon;reqDraw();}}
   else if(ptr.size>=2){const [a,b]=[...ptr.values()];const d=Math.hypot(a.x-b.x,a.y-b.y);if(GS.d0>0)setZoom(GS.z0+Math.log2(d/GS.d0),(a.x+b.x)/2,(a.y+b.y)/2);setFollow(false);}});
 function ptrEnd(e){const tap=GS&&GS.t==='pan'&&!GS.moved&&ptr.size===1;ptr.delete(e.pointerId);if(tap)onTap(e.offsetX,e.offsetY);
-  if(ptr.size===0)GS=null;else if(ptr.size===1){const p=[...ptr.values()][0];GS={t:'pan',sx:p.x,sy:p.y,moved:true,c:project(S.view.lat,S.view.lon,S.view.z)};}store('view',S.view);}
+  if(ptr.size===0){GS=null;scheduleArea();}else if(ptr.size===1){const p=[...ptr.values()][0];GS={t:'pan',sx:p.x,sy:p.y,moved:true,c:project(S.view.lat,S.view.lon,S.view.z)};}store('view',S.view);}
 cv.addEventListener('pointerup',ptrEnd);cv.addEventListener('pointercancel',ptrEnd);
 cv.addEventListener('wheel',e=>{e.preventDefault();setZoom(S.view.z-Math.sign(e.deltaY)*0.5,e.offsetX,e.offsetY);},{passive:false});
 $('zin').onclick=()=>setZoom(Math.round(S.view.z)+1);$('zout').onclick=()=>setZoom(Math.round(S.view.z)-1);
@@ -463,8 +632,9 @@ function placesSheet(){const list=S.places.map((p,i)=>`<div class="item"><div cl
 function copyTxt(t){(navigator.clipboard?navigator.clipboard.writeText(t):Promise.reject()).then(()=>toast('تم النسخ'),()=>toast(t,6000));}
 
 /* ====================== التخطيط واقتراح المسارات ====================== */
-function planTo(dest){if(!S.pos){toast('انتظر حتى يحدد GPS موقعك');return;}closeSheet();addPlace(dest);
-  if(!G||!snap(S.pos,S.mode,400)||!snap(dest,S.mode,1500)){noRoadData(dest);return;}
+async function planTo(dest){if(!S.pos){toast('انتظر حتى يحدد GPS موقعك');return;}closeSheet();addPlace(dest);
+  $('busy').style.display='flex';await loadGraph(false,[S.pos,dest]);$('busy').style.display='none';
+  if(!G||!snap(S.pos,S.mode,1500)||!snap(dest,S.mode,3000)){noRoadData(dest);return;}
   $('busy').style.display='flex';
   setTimeout(()=>{let routes=[];try{routes=alternatives(S.pos,dest,S.mode);}catch(e){console.error(e);}$('busy').style.display='none';
     if(!routes.length){noRoadData(dest,true);return;}routes.forEach(r=>r.dest.name=dest.name);
@@ -506,11 +676,12 @@ function navTick(){const N=S.nav;if(!N||!S.pos)return;const pp=P();
   if(N.kind==='direct'){const d=hav(S.pos,N.dest);if(d<pp.arrive){vib([300,150,300]);speak('لقد وصلت إلى وجهتك');stopNav('🎉 وصلت');return;}
     const h=heading(),b=bearing(S.pos,N.dest);const txt=h==null?'اتجه نحو '+dirName(b):(Math.abs(norm180(b-h))<25?'استمر إلى الأمام':Math.abs(norm180(b-h))>140?'استدر إلى الخلف':(norm180(b-h)>0?'اتجه إلى اليمين':'اتجه إلى اليسار'));
     if(txt!==N.last&&Date.now()-S.lastSpeakT>7000){N.last=txt;speak(txt);}N.txt=txt;N.d=d;N.b=b;return;}
-  const rt=N.rt,loc=locate(rt,S.pos,N.seg);const thr=pp.off+Math.min(S.pos.acc,40)*0.6;
+  const rt=N.rt,loc=locate(rt,S.pos,N.seg);const thr=pp.off+Math.min(S.pos.acc,40)*0.6+(N.s<60?rt.startGap||0:0);
   if(loc.d>thr){N.off++;if(N.off>=2&&Date.now()-N.lastRe>5000){reroute('خرجت عن المسار المقترح، تم حساب مسار جديد');return;}}
   else{N.off=0;N.seg=loc.i;N.s=loc.s;
     const h=S.pos.heading!=null?S.pos.heading:S.pos.h2;if(S.speed>pp.moving&&h!=null){const rb=bearing(rt.P[loc.i],rt.P[Math.min(rt.P.length-1,loc.i+1)]);if(Math.abs(norm180(h-rb))>135)N.wrong++;else N.wrong=0;
       if(N.wrong>=4&&Date.now()-N.lastRe>8000){reroute('أنت تسير في الاتجاه المعاكس، تم حساب مسار جديد');return;}}}
+  if(rt.total-N.s<pp.arrive&&hav(S.pos,N.dest)>Math.max(60,pp.arrive*2)){speak('نهاية الطريق، تابع مباشرة نحو الوجهة');const d=N.dest;S.nav=null;startDirect(d);return;}
   if(rt.total-N.s<pp.arrive||hav(S.pos,N.dest)<pp.arrive){vib([300,150,300,150,300]);speak('لقد وصلت إلى وجهتك'+(N.dest.name?'، '+N.dest.name:''));stopNav('🎉 وصلت إلى وجهتك');return;}
   const k=nextStep(),st=rt.steps[k],d=st.at-N.s;
   for(const [thrD,tag] of pp.ann){const key=k+'_'+tag;if(N.said[key])continue;
@@ -525,6 +696,7 @@ function onPos(p){const c=p.coords;const np={lat:c.latitude,lon:c.longitude,acc:
   if(!S.start&&c.accuracy<50)S.start={lat:np.lat,lon:np.lon,name:'نقطة البداية'};
   setGps(c.accuracy<=15?'#3BB273':c.accuracy<=40?'#E8B23A':'#E07A3A','GPS ±'+Math.round(c.accuracy)+' م');
   if(first){S.view.lat=np.lat;S.view.lon=np.lon;if(S.view.z<14)S.view.z=P().zoom;}else if(S.follow){S.view.lat=np.lat;S.view.lon=np.lon;}
+  if(!S.lastAreaPos||hav(S.lastAreaPos,np)>3000){S.lastAreaPos={lat:np.lat,lon:np.lon};loadGraph();}
   navTick();updatePanel();reqDraw();}
 let watchId=null,lowAcc=false,gpsTimer=null;
 function gpsHelp(kind){const fixPerm='<h3>اسمح لـ Chrome باستعمال الموقع</h3>1. اضغط على 🔒 أو ⓘ بجانب العنوان في أعلى Chrome، ثم «الأذونات»، ثم «الموقع»، واختر «سماح».<br>2. في إعدادات الهاتف: «التطبيقات»، ثم «Chrome»، ثم «الأذونات»، ثم «الموقع»، واختر «السماح أثناء الاستخدام» و«الموقع الدقيق».<br>3. فعّل «الموقع (Location)» من القائمة العلوية للهاتف.';
@@ -564,23 +736,33 @@ function updatePanel(){const N=S.nav;$('instr').className='';
   if(N&&N.kind==='road'){const rt=N.rt,k=nextStep(),st=rt.steps[k],d=Math.max(0,st.at-N.s);const offNow=N.off>0;
     $('icon').innerHTML=iconSVG(st);$('dist').textContent=(st.type==='arrive'?'الوجهة بعد ':'بعد ')+fmtD(d);
     $('instr').textContent=offNow?'⚠️ خارج المسار — جارٍ التحقق…':stepText(st);if(offNow)$('instr').className='warn';
-    const cur=streetName(G&&rt.W[N.seg]!=null?G.ways[rt.W[N.seg]]:null);$('target').textContent=cur?'أنت على: '+cur:'إلى: '+(N.dest.name||'');
+    const cur=streetName(rt.Wo[N.seg]||null);$('target').textContent=cur?'أنت على: '+cur:'إلى: '+(N.dest.name||'');
     const rem=Math.max(0,rt.total-N.s),t=rt.time*rem/Math.max(1,rt.total);$('rem').textContent='المتبقي '+fmtD(rem)+' · '+fmtT(t)+' · الوصول '+clock(Date.now()+t*1000);return;}
   if(N&&N.kind==='direct'){if(!S.pos){$('dist').textContent='—';$('instr').textContent='⏳ في انتظار GPS';return;}const h=heading();$('icon').innerHTML=compassSVG(h==null?N.b||0:norm180((N.b||0)-h));
     $('dist').textContent=fmtD(N.d);$('instr').textContent=N.txt||'';$('target').textContent='توجيه مباشر إلى: '+N.dest.name;$('rem').textContent='خط مستقيم — لا تتوفر بيانات شوارع هنا';return;}
   const h=heading();$('icon').innerHTML=compassSVG(h!=null?-h:0);
   $('dist').textContent=S.pos?(S.speed>0.6?(S.speed*3.6).toFixed(0)+' كم/س':'جاهز'):'—';
   $('instr').textContent=S.pos?'اضغط «إلى أين؟» لاختيار وجهتك':'⏳ في انتظار إشارة GPS…';
-  $('target').textContent=G?'🗺️ خريطة الشوارع محمّلة ('+G.ways.length+' طريق)':'⚠️ لا توجد خريطة شوارع — اضغط «تحميل منطقة»';
+  $('target').textContent=G?'🗺️ الخريطة جاهزة ('+G.ways.length+' طريق قريب)':(S.regions.some(r=>r.ways)?'🗺️ لا توجد شوارع محمّلة في هذه المنطقة':'⚠️ لا توجد خريطة — اضغط «تحميل منطقة»');
   $('rem').textContent=S.pos?S.pos.lat.toFixed(5)+', '+S.pos.lon.toFixed(5):'';}
 
 /* ====================== تحميل المناطق ====================== */
-function dlSheet(dest){const regs=S.regions.map((r,i)=>`<div class="item"><div class="t">🗺️ ${esc(r.name)}</div><div class="s">${r.ways} طريق · ${r.pois} مكان · ${new Date(r.t).toLocaleDateString('ar')}</div><div class="acts"><button data-show="${i}">عرض</button><button data-upd="${i}">🔄 تحديث</button><button class="del" data-del="${i}">🗑️</button></div></div>`).join('');
+function dlSheet(dest){const regs=S.regions.map((r,i)=>({r,i})).filter(x=>!x.r.kind||x.r.kind==='custom').map(({r,i})=>`<div class="item"><div class="t">🗺️ ${esc(r.name)}</div><div class="s">${r.ways} طريق · ${r.pois} مكان · ${new Date(r.t).toLocaleDateString('ar')}</div><div class="acts"><button data-show="${i}">عرض</button><button data-upd="${i}">🔄 تحديث</button><button class="del" data-del="${i}">🗑️</button></div></div>`).join('');
   const opts=S.places.map((p,i)=>`<option value="p${i}">موقعي ← ${esc(p.name)}</option>`).join('');
-  openSheet(`<h2>⬇️ تحميل منطقة للاستعمال دون إنترنت</h2><p class="sub">يتطلب الإنترنت مرة واحدة فقط. يحمّل كل الشوارع واتجاهات السير وأسماء الأماكن، ثم يعمل حساب المسارات على الهاتف دون اتصال.</p>
+  const nat=S.regions.filter(r=>r.kind==='nat'),natN=natCells().length;const gd={};S.regions.filter(r=>r.kind==='det').forEach(r=>{gd[r.gov]=(gd[r.gov]||0)+1;});
+  const govList=Object.keys(gd).map(c=>`<div class="item"><div class="t">${c==='PBF'?'📦 كل شوارع تونس (من الملف)':'🏙️ ولاية '+esc(govName(c))}</div><div class="s">${gd[c]} جزء محمّل</div><div class="acts">${c==='PBF'?'':`<button data-gmore="${c}">🔄 إكمال</button>`}<button class="del" data-gdel="${c}">🗑️ حذف</button></div></div>`).join('');
+  openSheet(`<button class="btn gold" id="tPbf" style="margin:0 0 12px">📦 خريطة تونس الكاملة من ملف واحد (موصى به)</button><h2>🇹🇳 أو التحميل على أجزاء</h2><p class="sub">تحمَّل مرة واحدة بالإنترنت، ويمكن إيقاف التحميل وإكماله لاحقًا. اترك الشاشة مفتوحة أثناء التحميل.</p>
+  <div class="sub" id="tInfo" style="font-weight:700;color:var(--navy)">${DL?'⏳ تحميل جارٍ…':''}</div><div class="bar"><div id="tBar"></div></div>
+  <div class="item" style="margin-top:10px"><div class="t">🛣️ الطرق الرئيسية لكل البلاد</div><div class="s">الطرق السيارة والوطنية والجهوية والمحلية، وأسماء كل المدن والقرى، للتنقل بين الولايات بالسيارة. ${nat.length}/${natN} جزء محمّل.</div>
+   <div class="acts"><button class="go" id="tNat">${nat.length?(nat.length<natN?'⬇️ إكمال':'🔄 تحديث'):'⬇️ تحميل'}</button>${nat.length?'<button class="del" id="tNatDel">🗑️ حذف</button>':''}</div></div>
+  <div class="item"><div class="t">🏘️ كل الشوارع والأزقّة حسب الولاية</div><div class="s">للتوجيه شارعًا بشارع داخل المدن والأحياء، بالسيارة أو مشيًا.</div>
+   <select id="tGov" style="margin-top:8px">${GOVS.map(g=>`<option value="${g[0]}">ولاية ${g[1]}</option>`).join('')}<option value="ALL">كل الولايات الـ 24 (حجم كبير جدًا)</option></select>
+   <div class="acts"><button class="go" id="tGovGo">⬇️ تحميل الولاية</button><button id="tStop">⏹ إيقاف</button></div></div>
+  ${govList}
+  <h2 style="margin-top:18px">⬇️ أو تحميل منطقة صغيرة</h2><p class="sub">كل الشوارع حول موقعك أو بين موقعك ووجهتك.</p>
   <label>المنطقة</label><select id="dC"><option value="me">حول موقعي الحالي</option><option value="view">حول وسط الخريطة المعروضة</option>${dest?'<option value="dest" selected>من موقعي إلى الوجهة المختارة</option>':''}${opts}</select>
   <label>نصف القطر / الهامش</label><select id="dR"><option value="1500">1.5 كم</option><option value="3000" selected>3 كم</option><option value="6000">6 كم</option><option value="10000">10 كم (بيانات كبيرة)</option></select>
-  <label>الاسم</label><input id="dN" value="منطقة ${S.regions.length+1}">
+  <label>الاسم</label><input id="dN" value="منطقة ${S.regions.filter(r=>!r.kind||r.kind==='custom').length+1}">
   <div class="chk"><input type="checkbox" id="dT"> <span>تحميل صور الخريطة أيضًا (اختياري، حجم أكبر)</span></div>
   <div class="sub" id="dInfo" style="margin-top:8px"></div><div class="bar"><div id="dBar"></div></div>
   <button class="btn" id="dGo">⬇️ تحميل</button>
@@ -600,11 +782,24 @@ function dlSheet(dest){const regs=S.regions.map((r,i)=>`<div class="item"><div c
   $('sheet').onclick=async e=>{const bt=e.target.closest('button');if(!bt||!bt.dataset)return;const d=bt.dataset;
     if(d.show!=null){const r=S.regions[+d.show];closeSheet();fitTo([{lat:r.bbox[0],lon:r.bbox[1]},{lat:r.bbox[2],lon:r.bbox[3]}]);}
     else if(d.upd!=null){const r=S.regions[+d.upd];toast('جارٍ التحديث…',8000);try{await downloadRegion(r.bbox,r.name,null,r.id);toast('✅ تم التحديث');dlSheet();}catch(err){toast('❌ فشل التحديث');}}
-    else if(d.del!=null&&confirm('حذف هذه المنطقة؟')){const r=S.regions[+d.del];await idbDel('r',r.id);S.regions.splice(+d.del,1);store('regions',S.regions);await loadGraph();dlSheet();}};}
+    else if(d.del!=null&&confirm('حذف هذه المنطقة؟')){const r=S.regions[+d.del];await removeKind(x=>x.id===r.id);dlSheet();}
+    else if(d.gdel!=null&&confirm('حذف شوارع ولاية '+govName(d.gdel)+'؟')){await removeKind(x=>x.kind==='det'&&x.gov===d.gdel);if(d.gdel==='PBF')store('pbfInfo',null);dlSheet();}
+    else if(d.gmore!=null){startGov(d.gmore,true);}};
+  const tmsg=t=>{if($('tInfo'))$('tInfo').textContent=t;},tbar=f=>{if($('tBar'))$('tBar').style.width=(f*100)+'%';};
+  const need=()=>{if(!navigator.onLine){toast('يجب الاتصال بالإنترنت للتحميل');return false;}if(DL){toast('يوجد تحميل جارٍ');return false;}return true;};
+  $('tNat').onclick=async()=>{if(!need())return;const nat=S.regions.filter(r=>r.kind==='nat');if(nat.length===natCells().length){if(!confirm('إعادة تحميل الطرق الرئيسية لتحديثها؟'))return;await removeKind(x=>x.kind==='nat');}
+    await runDownload(natCells(),'nat',null,tmsg,tbar);dlSheet();};
+  if($('tNatDel'))$('tNatDel').onclick=async()=>{if(confirm('حذف الطرق الرئيسية لكل تونس؟')){await removeKind(x=>x.kind==='nat');dlSheet();}};
+  const startGov=async(code,resume)=>{if(!need())return;const codes=code==='ALL'?GOVS.map(g=>g[0]):[code];
+    if(code==='ALL'&&!confirm('تحميل كل شوارع تونس يستغرق وقتًا طويلًا (قد يصل إلى ساعات) ويحتاج مساحة كبيرة على الهاتف (مئات الميغابايت). هل تريد المتابعة؟'))return;
+    for(const c of codes){if(DL&&DL.stop)break;let cells;try{cells=await govCells(c,tmsg);}catch(e){tmsg('❌ '+e.message);continue;}await runDownload(cells,'det',c,tmsg,tbar);}dlSheet();};
+  $('tGovGo').onclick=()=>startGov($('tGov').value);
+  $('tPbf').onclick=pbfSheet;
+  $('tStop').onclick=()=>{if(DL){DL.stop=true;tmsg('جارٍ الإيقاف بعد الجزء الحالي…');}};}
 async function downloadRegion(bb,name,msg,id){const data=await fetchRoads(bb,msg);if(!data.ways.length)throw new Error('لا توجد طرق في هذه المنطقة');
   id=id||('r'+Date.now());data.id=id;data.name=name;data.bbox=bb;data.t=Date.now();msg&&msg('جارٍ الحفظ على الهاتف…');await idbPut('r',id,data);
-  const meta={id,name,bbox:bb,t:data.t,ways:data.ways.length,pois:data.pois.length};const i=S.regions.findIndex(r=>r.id===id);if(i>=0)S.regions[i]=meta;else S.regions.push(meta);store('regions',S.regions);
-  msg&&msg('جارٍ تجهيز شبكة الطرق…');await loadGraph();}
+  data.kind='custom';REC.delete(id);const meta={id,kind:'custom',name,bbox:bb,t:data.t,ways:data.ways.length,pois:data.pois.length};const i=S.regions.findIndex(r=>r.id===id);if(i>=0)S.regions[i]=meta;else S.regions.push(meta);store('regions',S.regions);
+  msg&&msg('جارٍ تجهيز شبكة الطرق…');await loadGraph(true);}
 async function downloadTiles(bb,msg){const L=[];const maxZ=P().maxTileZ;for(let z=11;z<=maxZ;z++){const a=project(bb[2],bb[1],z),b=project(bb[0],bb[3],z);for(let x=Math.floor(a.x/TS);x<=Math.floor(b.x/TS);x++)for(let y=Math.floor(a.y/TS);y<=Math.floor(b.y/TS);y++)L.push([z,x,y]);}
   if(L.length>4000){msg&&msg('صور الخريطة كثيرة جدًا لهذه المساحة، تم تخطيها');return;}let done=0,i=0;
   const wk=async()=>{while(i<L.length){const [z,x,y]=L[i++];if(!(await idbGet('t',z+'/'+x+'/'+y)))await fetchTile(z,x,y);done++;if(done%10===0){msg&&msg('صور الخريطة: '+done+' / '+L.length);if($('dBar'))$('dBar').style.width=(done/L.length*100)+'%';}}};
@@ -625,7 +820,7 @@ function settingsSheet(){openSheet(`<h2>⚙️ الإعدادات</h2>
   $('sIm').onclick=()=>{const t=prompt('الصق النص المنسوخ هنا');if(!t)return;try{const a=JSON.parse(t);if(Array.isArray(a)){a.forEach(addPlace);toast('تم الاستيراد');closeSheet();reqDraw();}}catch(e){toast('النص غير صالح');}};
   $('sClr').onclick=async()=>{if(confirm('حذف كل صور الخريطة؟')){await idbClear('t');mem.clear();toast('تم الحذف');reqDraw();}};}
 function helpSheet(){openSheet(`<h2>🧭 دليلي — طريقة الاستعمال</h2><div class="help">
-  <h3>1. حمّل منطقتك مرة واحدة (بالإنترنت)</h3>اضغط «تحميل منطقة» واختر المنطقة. يحفظ التطبيق على الهاتف كل الشوارع وأسماءها واتجاهات السير والدوّارات وأسماء الأماكن، مثل الصيدليات والمساجد والمدارس.
+  <h3>1. حمّل الخريطة مرة واحدة (بالإنترنت)</h3>اضغط «تحميل الخرائط» ثم «📦 خريطة تونس الكاملة من ملف واحد». يحمّل التطبيق ملف تونس كاملًا ويعالجه على الهاتف. يمكنك بدلًا من ذلك التحميل على أجزاء: الطرق الرئيسية، أو ولاية، أو منطقة صغيرة حولك. يحفظ التطبيق على الهاتف كل الشوارع وأسماءها واتجاهات السير والدوّارات وأسماء الأماكن، مثل الصيدليات والمساجد والمدارس.
   <h3>2. اختر وجهتك (بدون إنترنت)</h3>اضغط «إلى أين؟» وابحث عن شارع أو مكان بالاسم، أو أدخل الإحداثيات، أو اختر النقطة على الخريطة.
   <h3>3. اختر المسار</h3>يقترح التطبيق حتى 3 مسارات، الأسرع أولًا، ويعرض لكل مسار الوقت والمسافة والشوارع الرئيسية التي يمرّ منها.
   <h3>4. التوجيه شارعًا بشارع</h3>يعرض التطبيق المنعطف القادم واسم الشارع الذي ستدخله، ويقرأ التعليمات بصوت عربي، مثلًا «بعد 300 متر انعطف إلى اليمين إلى شارع …» و«عند الدوّار خذ المخرج الثاني». إذا سلكت طريقًا مختلفًا أو سرت في الاتجاه المعاكس، يحسب مسارًا جديدًا من مكانك مباشرة.
