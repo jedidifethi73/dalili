@@ -1,1 +1,1 @@
-GPS Navigation
+GPS Navigation offline
