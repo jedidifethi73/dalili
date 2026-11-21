@@ -662,10 +662,10 @@ function fitTo(pts){setFollow(false);if(pts.length===1){S.view.lat=pts[0].lat;S.
 function onTap(x,y){const u=scrToU(x,y),g=toGeo(u[0],u[1]);
   if(S.tap==='pick'){selectPoint(x,y);return;}
   if(S.plan){const tol=25*mpp();let bi=-1,bd=Infinity;S.plan.routes.forEach((r,i)=>{const l=locate(r,g,0,true);if(l.d<bd){bd=l.d;bi=i;}});if(bi>=0&&bd<tol){S.plan.sel=bi;planSheet();reqDraw();}}}
-function showModeBar(){const b=$('modeBar');if(S.tap==='pick'){b.innerHTML='📍 اضغط على المكان المطلوب في الخريطة (حرّك الخريطة وكبّرها إن لزم)<div class="row"><button id="pCancel">إلغاء</button></div>';b.style.display='block';$('pCancel').onclick=()=>{S.tap=null;showModeBar();};}else b.style.display='none';}
+function showModeBar(){const b=$('modeBar');if(S.tap==='pick'){ensureGuard();b.innerHTML='📍 اضغط على المكان المطلوب في الخريطة (حرّك الخريطة وكبّرها إن لزم)<div class="row"><button id="pCancel">إلغاء</button></div>';b.style.display='block';$('pCancel').onclick=()=>{S.tap=null;showModeBar();};}else b.style.display='none';}
 
 /* ====================== النوافذ ====================== */
-function openSheet(html,compact){const sh=$('sheet');sh.innerHTML=html;sh.className=compact?'compact':'';sh.style.display='block';$('sheetBg').style.display=compact?'none':'block';sh.scrollTop=0;sh.onclick=null;}
+function openSheet(html,compact){ensureGuard();const sh=$('sheet');sh.innerHTML=html;sh.className=compact?'compact':'';sh.style.display='block';$('sheetBg').style.display=compact?'none':'block';sh.scrollTop=0;sh.onclick=null;}
 function closeSheet(){$('sheet').style.display='none';$('sheetBg').style.display='none';}
 $('sheetBg').onclick=()=>{closeSheet();};
 function parseCoords(s){s=String(s).replace(/[٠-٩]/g,d=>'٠١٢٣٤٥٦٧٨٩'.indexOf(d)).replace(/٫/g,'.').replace(/،/g,',');
@@ -830,10 +830,10 @@ function stepsSheet(r,fromPlan){const rows=r.steps.map((st,i)=>`<div class="res"
 async function askCompass(){try{if(window.DeviceOrientationEvent&&typeof DeviceOrientationEvent.requestPermission==='function')await DeviceOrientationEvent.requestPermission();}catch(e){}}
 async function keepAwake(){try{if(navigator.wakeLock&&!S.wake)S.wake=await navigator.wakeLock.request('screen');}catch(e){}}
 function navUI(on){$('mainBtns').style.display=on?'none':'grid';$('navBtns').style.display=on?'flex':'none';}
-function startRoad(rt){askCompass();keepAwake();S.nav={kind:'road',rt,dest:rt.dest,s:0,seg:0,said:{},off:0,wrong:0,lastRe:0};navUI(true);
+function startRoad(rt){ensureGuard();askCompass();keepAwake();S.nav={kind:'road',rt,dest:rt.dest,s:0,seg:0,said:{},off:0,wrong:0,lastRe:0};navUI(true);
   const st1=rt.steps[1];speak(stepText(rt.steps[0])+'. ثم بعد '+spokenD(st1.at)+'، '+stepText(st1));S.nav.said['1_far']=1;
   setFollow(true);S.zT=P().zoom+0.8;updatePanel();reqDraw();}
-function startDirect(dest){askCompass();keepAwake();S.nav={kind:'direct',dest,last:''};navUI(true);speak('توجيه مباشر نحو '+dest.name);fitTo(S.pos?[S.pos,dest]:[dest]);updatePanel();}
+function startDirect(dest){ensureGuard();askCompass();keepAwake();S.nav={kind:'direct',dest,last:''};navUI(true);speak('توجيه مباشر نحو '+dest.name);fitTo(S.pos?[S.pos,dest]:[dest]);updatePanel();}
 function stopNav(msg){S.nav=null;S.zT=null;navUI(false);try{S.wake&&S.wake.release();}catch(e){}S.wake=null;if(msg)toast(msg,3500);updatePanel();reqDraw();}
 function locate(rt,p,hint,all){let best={d:Infinity,i:0,s:0};const n=rt.P.length-1;const scan=(lo,hi)=>{for(let i=lo;i<hi;i++){const A=local(rt.P[i],p),B=local(rt.P[i+1],p);const dx=B.x-A.x,dy=B.y-A.y,L=dx*dx+dy*dy;let t=L?-(A.x*dx+A.y*dy)/L:0;t=Math.max(0,Math.min(1,t));const d=Math.hypot(A.x+t*dx,A.y+t*dy);if(d<best.d)best={d,i,s:rt.cum[i]+t*(rt.cum[i+1]-rt.cum[i])};}};
   if(all)scan(0,n);else{scan(Math.max(0,hint-3),Math.min(n,hint+80));if(best.d>40)scan(0,n);}return best;}
@@ -1047,6 +1047,18 @@ window.addEventListener('resize',resize);
 /* ====================== تشغيل ====================== */
 (()=>{const pi=load('pbfInfo',null),maps=load('maps',{});if(pi&&!maps.tunisia){maps.tunisia={name:'تونس',t:pi.t,size:pi.size,ways:pi.ways,pois:pi.pois};store('maps',maps);}
   let ch=false;S.regions.forEach(r=>{if(!r.cc&&(r.gov==='PBF'||/^p[nx]_\d/.test(r.id))){r.cc='tunisia';ch=true;}});if(ch)store('regions',S.regions);})();
+
+/* ====================== زر الرجوع في الهاتف ====================== */
+// الرجوع يغلق النوافذ أولًا، ثم يخرج من التطبيق فقط بضغطتين متتاليتين
+let backT=null;
+function ensureGuard(){try{clearTimeout(backT);if(!(history.state&&history.state.dl==='guard'))history.pushState({dl:'guard'},'');}catch(e){}}
+window.addEventListener('popstate',()=>{
+  if($('sheet').style.display==='block'){closeSheet();if(S.plan){S.plan=null;}S.sel=null;reqDraw();ensureGuard();return;}
+  if(S.tap){S.tap=null;showModeBar();ensureGuard();return;}
+  if(S.sel||S.plan){S.sel=null;S.plan=null;reqDraw();ensureGuard();return;}
+  if(S.nav){toast('التوجيه جارٍ — اضغط «⏹ إيقاف» لإنهائه',3000);ensureGuard();return;}
+  toast('اضغط «رجوع» مرة أخرى للخروج',2000);clearTimeout(backT);backT=setTimeout(ensureGuard,2200);});
+try{history.replaceState({dl:'root'},'');}catch(e){}ensureGuard();
 resize();updatePanel();startGPS();loadGraph();loadIndex();
 if('serviceWorker' in navigator&&location.protocol==='https:'){navigator.serviceWorker.register('sw.js').catch(()=>{});}
 if(!load('seenHelp2',false)){store('seenHelp2',true);setTimeout(()=>{if($('sheet').style.display!=='block')helpSheet();},400);}
