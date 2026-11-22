@@ -33,7 +33,6 @@ header small{display:block;font-size:10.5px;color:#C9D3E0;font-weight:400}
 #modeBar{position:absolute;top:10px;right:10px;left:62px;background:var(--navy);color:#fff;border-radius:8px;padding:8px 10px;font-size:13px;display:none;box-shadow:0 2px 8px #0003}
 #modeBar .row{display:flex;gap:6px;margin-top:7px}
 #modeBar button{flex:1;border:0;border-radius:6px;padding:7px 4px;font-size:13px;font-weight:700;background:#fff;color:var(--navy);font-family:inherit}
-#jv{position:absolute;top:10px;right:10px;width:140px;height:150px;border-radius:10px;border:2px solid #fff;box-shadow:0 2px 10px #0004;display:none;background:#EEF1F4}
 #then{font-size:12.5px;font-weight:700;color:var(--slate);margin-top:2px}
 .chips{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0}
 .chips button{border:1px solid var(--line);background:var(--bg);border-radius:16px;padding:6px 10px;font-size:13px;font-weight:700;color:var(--navy);font-family:inherit}
@@ -99,7 +98,6 @@ body.navmode #target{color:#DDE4EC}
 body.navmode #then{color:#C9D3E0}
 body.navmode #navBar{display:flex}
 body.navmode .mapBtns{top:auto;bottom:calc(80px + env(safe-area-inset-bottom))}
-body.navmode #jv{top:auto;bottom:calc(80px + env(safe-area-inset-bottom))}
 body.navmode #toast{top:auto;bottom:calc(90px + env(safe-area-inset-bottom))}
 #toast{position:fixed;left:50%;top:70px;transform:translateX(-50%);background:var(--ink);color:#fff;padding:9px 14px;border-radius:8px;font-size:13.5px;z-index:30;display:none;max-width:90vw;text-align:center}
 .switch{display:flex;align-items:center;justify-content:space-between;border:1px solid var(--line);border-radius:8px;padding:10px;margin-top:8px;font-size:14px;font-weight:700}
@@ -120,7 +118,6 @@ body.navmode #toast{top:auto;bottom:calc(90px + env(safe-area-inset-bottom))}
   body.navmode #panel{left:auto;right:max(8px,env(safe-area-inset-right));width:min(340px,45vw);border-left:0;padding:8px 10px}
   body.navmode #navBar{left:auto;right:max(8px,env(safe-area-inset-right));width:min(340px,45vw)}
   body.navmode #dist{font-size:23px} body.navmode #instr{font-size:14.5px} body.navmode #icon{width:60px;height:60px;flex-basis:60px}
-  body.navmode #jv{top:10px;bottom:auto;left:max(10px,env(safe-area-inset-left));right:auto;width:130px;height:140px}
   body.navmode .mapBtns{flex-direction:row;top:auto;bottom:10px;left:max(10px,env(safe-area-inset-left))}
   body.navmode #toast{bottom:16px;left:35%}
 }
@@ -144,7 +141,6 @@ body.navmode #toast{top:auto;bottom:calc(90px + env(safe-area-inset-bottom))}
     <div id="modeBar"></div>
     <div id="scale"></div>
     <div id="attr">© OpenStreetMap</div>
-    <canvas id="jv"></canvas>
     <div id="busy">⏳ جارٍ حساب المسارات…</div>
   </div>
   <section id="panel">
@@ -651,30 +647,8 @@ function draw(){if(!W)return;const mv=ease();ctx.setTransform(DPR,0,0,DPR,0,0);V
     const h=heading();if(h!=null){ctx.save();ctx.translate(s.x,s.y);ctx.rotate(h*D2R);ctx.beginPath();ctx.moveTo(0,-25);ctx.lineTo(10,-6);ctx.lineTo(-10,-6);ctx.closePath();ctx.fillStyle='#1B365D';ctx.fill();ctx.restore();}
     ctx.beginPath();ctx.arc(s.x,s.y,9,0,7);ctx.fillStyle='#2F6FDB';ctx.fill();ctx.lineWidth=3;ctx.strokeStyle='#fff';ctx.stroke();}
   const m=mpp(),nice=[5,10,20,50,100,200,500,1000,2000,5000,10000,20000,50000,100000];const L=nice.find(v=>v/m>=60)||100000;$('scale').innerHTML=fmtD(L)+'<div style="width:'+Math.round(L/m)+'px"></div>';
-  renderJV();$('follow').textContent=Math.abs(S.rot)>0.01?'🧭':'⌖';if(mv)reqDraw();}
+  $('follow').textContent=Math.abs(S.rot)>0.01?'🧭':'⌖';if(mv)reqDraw();}
 
-
-/* ====================== عرض المفترق المكبّر ====================== */
-const jvc=$('jv'),jx=jvc.getContext('2d');
-function renderJV(){const N=S.nav;let show=false;
-  if(N&&N.kind==='road'&&G){const rt=N.rt,k=nextStep(),st=rt.steps[k];const d=st.at-N.s;if(st.type!=='arrive'&&d<(S.mode==='walk'?120:450)&&d>-3){show=true;drawJV(rt,st,d);}}
-  jvc.style.display=show?'block':'none';}
-function drawJV(rt,st,d){const cw=140,ch=150;if(jvc.width!==cw*DPR){jvc.width=cw*DPR;jvc.height=ch*DPR;}jx.setTransform(DPR,0,0,DPR,0,0);jx.fillStyle='#EEF1F4';jx.fillRect(0,0,cw,ch);
-  const R=S.mode==='walk'?38:75,c={lat:st.lat,lon:st.lon};const inB=bearing(posAt(rt,Math.max(0,st.at-25)),c)*D2R,cs=Math.cos(inB),sn=Math.sin(inB),k=(cw*0.5)/R,cx=cw/2,cy=ch*0.6;
-  const T=(la,lo)=>{const p=local({lat:la,lon:lo},c);return [cx+(p.x*cs-p.y*sn)*k,cy-(p.x*sn+p.y*cs)*k];};
-  const ci=Math.floor(c.lat/CELL),cj=Math.floor(c.lon/CELL),seen=new Set(),segs=[[],[]];
-  for(let di=-1;di<=1;di++)for(let dj=-1;dj<=1;dj++){const a=G.grid.get(ckey(ci+di,cj+dj));if(!a)continue;for(const e of a){if(seen.has(e))continue;seen.add(e);
-    const A=G.eA[e],B=G.eB[e];if(pointSeg(c,{lat:G.lat[A],lon:G.lon[A]},{lat:G.lat[B],lon:G.lon[B]})>R*1.6)continue;const g=G.eG[e];if(g===6&&S.mode==='car')continue;segs[g===6?1:0].push(e);}}
-  const pth=list=>{jx.beginPath();for(const e of list){const a=T(G.lat[G.eA[e]],G.lon[G.eA[e]]),b=T(G.lat[G.eB[e]],G.lon[G.eB[e]]);jx.moveTo(a[0],a[1]);jx.lineTo(b[0],b[1]);}};
-  jx.lineCap='round';jx.lineJoin='round';pth(segs[0]);jx.strokeStyle='#AEB6C1';jx.lineWidth=17;jx.stroke();pth(segs[0]);jx.strokeStyle='#fff';jx.lineWidth=13;jx.stroke();
-  if(segs[1].length){pth(segs[1]);jx.setLineDash([4,3]);jx.strokeStyle='#8C9AAB';jx.lineWidth=3;jx.stroke();jx.setLineDash([]);}
-  const pts=[];for(let i=0;i<=40;i++){const p=posAt(rt,st.at-R*1.5+R*2.6*i/40);pts.push(T(p.lat,p.lon));}const n=pts.length,e=pts[n-1],b=pts[n-5],ang=Math.atan2(e[1]-b[1],e[0]-b[0]);
-  jx.beginPath();jx.moveTo(pts[0][0],pts[0][1]);for(const p of pts)jx.lineTo(p[0],p[1]);jx.strokeStyle='#1B365D';jx.lineWidth=11;jx.lineCap='butt';jx.stroke();jx.strokeStyle='#2F6FDB';jx.lineWidth=7;jx.stroke();
-  jx.save();jx.translate(e[0],e[1]);jx.rotate(ang);jx.beginPath();jx.moveTo(13,0);jx.lineTo(-3,-11);jx.lineTo(-3,11);jx.closePath();jx.fillStyle='#1B365D';jx.fill();jx.restore();
-  const me=Math.max(0,st.at-d);if(d>0&&d<R*1.5){const p=posAt(rt,me),q=T(p.lat,p.lon);jx.beginPath();jx.arc(q[0],q[1],6,0,7);jx.fillStyle='#2F6FDB';jx.fill();jx.lineWidth=2.5;jx.strokeStyle='#fff';jx.stroke();}
-  jx.fillStyle='#1B365D';jx.fillRect(0,0,cw,24);jx.fillStyle='#fff';jx.font='bold 12px Tahoma';jx.direction='rtl';jx.textAlign='center';jx.textBaseline='middle';
-  let name=st.street||stepText(st);while(jx.measureText(name).width>cw-10&&name.length>4)name=name.slice(0,-2);jx.fillText(name,cw/2,12.5);
-  jx.fillStyle='#B8963E';const dt=fmtD(Math.max(0,d)),tw=jx.measureText(dt).width+14;jx.fillRect(cw/2-tw/2,ch-26,tw,20);jx.fillStyle='#fff';jx.fillText(dt,cw/2,ch-15.5);jx.textBaseline='alphabetic';}
 
 /* ====================== لمس الخريطة ====================== */
 function setZoom(z,ax,ay){z=Math.max(3,Math.min(20,z));if(S.zT!=null&&S.nav)S.zT=z;if(ax==null){S.view.z=z;reqDraw();return;}scheduleArea();const g=toGeo(ax,ay);S.view.z=z;const a=project(g.lat,g.lon,z);const c=unproject(a.x-(ax-W/2),a.y-(ay-H/2),z);S.view.lat=c.lat;S.view.lon=c.lon;reqDraw();}
