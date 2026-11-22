@@ -106,6 +106,24 @@ body.navmode #toast{top:auto;bottom:calc(90px + env(safe-area-inset-bottom))}
 .switch input{width:22px;height:22px}
 .chk{display:flex;align-items:center;gap:8px;font-size:13.5px;margin-top:10px}
 .chk input{width:20px!important;height:20px}
+/* الوضع الأفقي للهاتف */
+@media (orientation:landscape) and (max-height:600px){
+  #app{display:grid;grid-template-columns:min(340px,42vw) 1fr;grid-template-rows:auto 1fr}
+  header{grid-column:1 / -1;padding:4px 12px;padding-top:max(4px,env(safe-area-inset-top))}
+  header small{display:none} header h1{font-size:15px} #helpBtn{width:26px;height:26px;font-size:13px}
+  #panel{grid-column:1;grid-row:2;max-height:none;border-top:0;border-left:4px solid var(--navy);padding-right:max(12px,env(safe-area-inset-right))}
+  #mapWrap{grid-column:2;grid-row:2;min-height:0}
+  .grid button{padding:5px 2px;font-size:11.5px} .grid button b{font-size:17px}
+  #sheet{left:auto;right:0;width:min(520px,100%);max-height:92vh;border-radius:14px 0 0 0}
+  #sheet.compact{max-height:85vh}
+  body.navmode #mapWrap{grid-column:1 / -1;grid-row:1 / -1}
+  body.navmode #panel{left:auto;right:max(8px,env(safe-area-inset-right));width:min(340px,45vw);border-left:0;padding:8px 10px}
+  body.navmode #navBar{left:auto;right:max(8px,env(safe-area-inset-right));width:min(340px,45vw)}
+  body.navmode #dist{font-size:23px} body.navmode #instr{font-size:14.5px} body.navmode #icon{width:60px;height:60px;flex-basis:60px}
+  body.navmode #jv{top:10px;bottom:auto;left:max(10px,env(safe-area-inset-left));right:auto;width:130px;height:140px}
+  body.navmode .mapBtns{flex-direction:row;top:auto;bottom:10px;left:max(10px,env(safe-area-inset-left))}
+  body.navmode #toast{bottom:16px;left:35%}
+}
 </style>
 </head>
 <body>
@@ -546,13 +564,15 @@ window.addEventListener('online',()=>{for(const [k,v] of mem)if(v===false)mem.de
 function project(lat,lon,z){const s=TS*Math.pow(2,z);const sn=Math.min(.9999,Math.max(-.9999,Math.sin(lat*D2R)));return {x:(lon+180)/360*s,y:(0.5-Math.log((1+sn)/(1-sn))/(4*Math.PI))*s};}
 function unproject(x,y,z){const s=TS*Math.pow(2,z);const n=Math.PI-2*Math.PI*y/s;return {lat:Math.atan(Math.sinh(n))/D2R,lon:x/s*360-180};}
 let W=0,H=0,DPR=1;const cv=$('map'),ctx=cv.getContext('2d');let VC=null;
-S.rot=0;S.ay=0.5;S.zT=null;S.headUp=load('headUp',true);S.fullNav=load('fullNav',true);
-const MG=()=>(Math.abs(S.rot)>0.001||Math.abs(S.ay-0.5)>0.01)?Math.max(W,H)*0.75:30;
-function scrToU(x,y){const dx=x-W/2,dy=y-H*S.ay,c=Math.cos(-S.rot),s=Math.sin(-S.rot);return [dx*c-dy*s+W/2,dx*s+dy*c+H/2];}
+S.rot=0;S.ay=0.5;S.ax=0.5;S.zT=null;S.headUp=load('headUp',true);S.fullNav=load('fullNav',true);
+const LAND=window.matchMedia('(orientation:landscape) and (max-height:600px)');
+const MG=()=>(Math.abs(S.rot)>0.001||Math.abs(S.ay-0.5)>0.01||Math.abs(S.ax-0.5)>0.01)?Math.max(W,H)*0.75:30;
+function scrToU(x,y){const dx=x-W*S.ax,dy=y-H*S.ay,c=Math.cos(-S.rot),s=Math.sin(-S.rot);return [dx*c-dy*s+W/2,dx*s+dy*c+H/2];}
 function ease(){let mv=false;const k=0.16;
   if(S.zT!=null&&S.follow&&S.nav){const d=S.zT-S.view.z;if(Math.abs(d)>0.01){S.view.z+=d*k*0.6;mv=true;}}
   const h=heading();const rT=(S.headUp&&S.nav&&S.follow&&h!=null)?-h*D2R:0;const dr=norm180((rT-S.rot)/D2R)*D2R;if(Math.abs(dr)>0.002){S.rot+=dr*k;mv=true;}else S.rot=rT;
-  const aT=(S.nav&&S.follow)?0.66:0.5;if(Math.abs(aT-S.ay)>0.002){S.ay+=(aT-S.ay)*k;mv=true;}else S.ay=aT;return mv;}
+  const nf=S.nav&&S.follow,land=LAND.matches;const aT=nf?(land?0.7:0.66):0.5;if(Math.abs(aT-S.ay)>0.002){S.ay+=(aT-S.ay)*k;mv=true;}else S.ay=aT;
+  const xT=nf&&land?0.38:0.5;if(Math.abs(xT-S.ax)>0.002){S.ax+=(xT-S.ax)*k;mv=true;}else S.ax=xT;return mv;}
 const rwid=(s,z)=>Math.max(.8,s.w*Math.pow(1.62,z-16)*1.15);
 function toScr(p){const a=project(p.lat,p.lon,S.view.z);return {x:W/2+a.x-VC.x,y:H/2+a.y-VC.y};}
 function scrLL(la,lo){const a=project(la,lo,S.view.z);return [W/2+a.x-VC.x,H/2+a.y-VC.y];}
@@ -612,7 +632,7 @@ function drawGrid(){const m=mpp(),steps=[50,100,200,500,1000,2000,5000,10000,200
   for(let la=Math.floor(br.lat/dLat)*dLat;la<=tl.lat+dLat;la+=dLat){const p=toScr({lat:la,lon:c.lon});ctx.moveTo(0,p.y);ctx.lineTo(W,p.y);}
   for(let lo=Math.floor(tl.lon/dLon)*dLon;lo<=br.lon+dLon;lo+=dLon){const p=toScr({lat:c.lat,lon:lo});ctx.moveTo(p.x,0);ctx.lineTo(p.x,H);}ctx.stroke();}
 function draw(){if(!W)return;const mv=ease();ctx.setTransform(DPR,0,0,DPR,0,0);VC=project(S.view.lat,S.view.lon,S.view.z);ctx.fillStyle='#EEF1F4';ctx.fillRect(0,0,W,H);
-  ctx.translate(W/2,H*S.ay);ctx.rotate(S.rot);ctx.translate(-W/2,-H/2);
+  ctx.translate(W*S.ax,H*S.ay);ctx.rotate(S.rot);ctx.translate(-W/2,-H/2);
   if(!G)drawGrid();drawRoads();tilesShown=0;if(S.mapStyle==='tiles')drawTiles();$('attr').style.display=tilesShown?'block':'none';
   if(!G&&!tilesShown){ctx.save();ctx.setTransform(DPR,0,0,DPR,0,0);ctx.fillStyle='#8A97A8';ctx.font='bold 13px Tahoma';ctx.textAlign='center';ctx.direction='rtl';ctx.fillText('لا توجد خريطة محمّلة لهذه المنطقة',W/2,H/2-40);ctx.font='12px Tahoma';ctx.fillText('اضغط «تحميل الخرائط» وأنت متصل بالإنترنت',W/2,H/2-20);ctx.restore();}
   S.places.forEach(p=>{const s=dot(p,6,'#5B7A9A');if(S.view.z>=15){ctx.save();ctx.translate(s.x,s.y);ctx.rotate(-S.rot);ctx.font='11px Tahoma';ctx.fillStyle='#1F2937';ctx.textAlign='center';ctx.direction='rtl';ctx.fillText(p.name,0,-10);ctx.restore();}});
@@ -658,7 +678,7 @@ function drawJV(rt,st,d){const cw=140,ch=150;if(jvc.width!==cw*DPR){jvc.width=cw
 
 /* ====================== لمس الخريطة ====================== */
 function setZoom(z,ax,ay){z=Math.max(3,Math.min(20,z));if(S.zT!=null&&S.nav)S.zT=z;if(ax==null){S.view.z=z;reqDraw();return;}scheduleArea();const g=toGeo(ax,ay);S.view.z=z;const a=project(g.lat,g.lon,z);const c=unproject(a.x-(ax-W/2),a.y-(ay-H/2),z);S.view.lat=c.lat;S.view.lon=c.lon;reqDraw();}
-function setFollow(v){S.follow=v;if(!v){S.rot=0;S.ay=0.5;}$('follow').classList.toggle('on',v);if(v&&S.pos){S.view.lat=S.pos.lat;S.view.lon=S.pos.lon;reqDraw();}}
+function setFollow(v){S.follow=v;if(!v){S.rot=0;S.ay=0.5;S.ax=0.5;}$('follow').classList.toggle('on',v);if(v&&S.pos){S.view.lat=S.pos.lat;S.view.lon=S.pos.lon;reqDraw();}}
 const ptr=new Map();let GS=null;
 cv.addEventListener('pointerdown',e=>{try{cv.setPointerCapture(e.pointerId);}catch(_){}ptr.set(e.pointerId,{x:e.offsetX,y:e.offsetY});
   if(GS&&GS.lp)clearTimeout(GS.lp);
@@ -1066,6 +1086,8 @@ $('bStop').onclick=()=>{if(confirm('إيقاف التوجيه؟'))stopNav('تم 
 $('bAlt').onclick=()=>{const N=S.nav;if(!N)return;const d=N.dest;stopNav();planTo(d);};
 document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible'&&S.nav){S.wake=null;keepAwake();}});
 window.addEventListener('resize',resize);
+try{screen.orientation&&screen.orientation.addEventListener('change',()=>setTimeout(resize,200));}catch(e){}
+window.addEventListener('orientationchange',()=>setTimeout(resize,250));
 
 /* ====================== تشغيل ====================== */
 (()=>{const pi=load('pbfInfo',null),maps=load('maps',{});if(pi&&!maps.tunisia){maps.tunisia={name:'تونس',t:pi.t,size:pi.size,ways:pi.ways,pois:pi.pois};store('maps',maps);}
