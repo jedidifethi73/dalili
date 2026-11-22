@@ -929,16 +929,15 @@ function dlSheet(dest,cSel){const regs=S.regions.map((r,i)=>({r,i})).filter(x=>!
     +Object.keys(ovp).map(k=>{const c=COUNTRIES.find(x=>'ovp:'+x[3]===k);return `<div class="item"><div class="t">🛣️ ${esc(c?c[1]:k.slice(4))} — الطرق الرئيسية</div><div class="s">${ovp[k]} جزء محمّل</div><div class="acts"><button class="del" data-odel="${esc(k)}">🗑️ حذف</button></div></div>`;}).join('');
   const gd={};S.regions.filter(r=>r.kind==='det'&&r.gov!=='PBF').forEach(r=>{gd[r.gov]=(gd[r.gov]||0)+1;});
   const govList=Object.keys(gd).map(c=>`<div class="item"><div class="t">🏙️ ولاية ${esc(govName(c))}</div><div class="s">${gd[c]} جزء محمّل</div><div class="acts"><button data-gmore="${c}">🔄 إكمال</button><button class="del" data-gdel="${c}">🗑️ حذف</button></div></div>`).join('');
-  openSheet(`<h2>🌍 خرائط الدول</h2><p class="sub">اختر أي بلد في العالم. الإنترنت مطلوب مرة واحدة للتحميل فقط، ثم يعمل كل شيء دون اتصال.</p>
+  openSheet(`<h2>🌍 خرائط الدول</h2><p class="sub">اختر أي بلد في العالم، ثم: 1️⃣ نزّل ملف خريطته على الهاتف، 2️⃣ ثم افهرسه داخل التطبيق. بعدها يعمل كل شيء دون اتصال.</p>
   <select id="cSel">${Object.keys(groups).map(g=>`<optgroup label="${g}">${groups[g].map(c=>`<option value="${c[0]}" ${c[0]===cur?'selected':''}>${c[1]} — ${fmtMB(c[2])}</option>`).join('')}</optgroup>`).join('')}</select>
   <div id="cCard"></div>
   <div class="sub" id="tInfo" style="font-weight:700;color:var(--navy);margin-top:8px">${DL?'⏳ تحميل جارٍ…':''}</div><div class="bar"><div id="tBar"></div></div>
   <button class="btn light" id="tStop">⏹ إيقاف التحميل الجاري</button>
   <details style="margin-top:6px"><summary>🔗 ملف خريطة آخر (منطقة أو مدينة من Geofabrik)</summary>
-   <p class="sub" style="margin-top:6px">للدول الكبيرة، افتح صفحة البلد في Geofabrik واختر منطقة أصغر (مثل منطقة فرنسية أو ولاية أمريكية)، ثم الصق رابط ملفها <b dir="ltr">.osm.pbf</b> هنا، أو نزّل الملف واختره من الهاتف.</p>
+   <p class="sub" style="margin-top:6px">للدول الكبيرة: افتح «صفحة البلد ومناطقه» ونزّل ملف <b dir="ltr">.osm.pbf</b> لمنطقة أصغر (مثل منطقة فرنسية أو ولاية أمريكية)، ثم اكتب اسمها هنا واضغط الزر لفهرستها.</p>
    <label>الاسم</label><input id="uName" placeholder="مثال: إيل دو فرانس">
-   <label>رابط الملف</label><input id="uUrl" dir="ltr" placeholder="https://download.geofabrik.de/...-latest.osm.pbf">
-   <div class="acts" style="display:flex;gap:6px;margin-top:8px"><button class="btn" id="uGo" style="margin:0">⬇️ تحميل واستيراد</button><button class="btn gold" id="uFile" style="margin:0">📂 اختيار ملف</button></div>
+   <button class="btn" id="uFile">📂 فهرسة الخريطة المحملة داخل التطبيق</button>
    <input type="file" id="uIn" accept=".pbf,.osm.pbf,application/octet-stream" style="display:none"></details>
   <h2 style="margin-top:16px">🗺️ الخرائط المحمّلة</h2>${mapList+govList||'<div class="empty">لا توجد خرائط دول بعد</div>'}
   <h2 style="margin-top:18px">⬇️ منطقة صغيرة</h2><p class="sub">كل الشوارع حول موقعك أو بين موقعك ووجهتك، في أي بلد (الأسرع).</p>
@@ -955,15 +954,15 @@ function dlSheet(dest,cSel){const regs=S.regions.map((r,i)=>({r,i})).filter(x=>!
     const ok='ovp:'+c[3];const tn=c[3]==='TN';
     $('cCard').innerHTML=`<div class="item" style="margin-top:10px"><div class="t">📦 خريطة ${esc(c[1])} كاملة (ملف واحد)</div>
       <div class="s">كل الطرق والشوارع وأسماء المدن والأماكن · الحجم ${fmtMB(c[2])}<br><b>${fitLabel(c[2])}</b>${have?'<br>✅ مستوردة '+new Date(have.t).toLocaleDateString('ar'):''}</div>
-      <div class="acts"><button class="go" id="cNet">⬇️ ${have?'تحديث':'تحميل واستيراد'}</button><button id="cFile">📂 الملف على هاتفي</button></div>
-      <div class="acts"><a href="${GF+c[0]}-latest.osm.pbf" target="_blank" rel="noopener" style="flex:1;text-align:center;padding:7px;border:1px solid var(--line);border-radius:6px;font-size:12.5px;font-weight:700;color:var(--navy);text-decoration:none">🔗 تنزيل الملف بالمتصفح</a><a href="${GF+c[0]}.html" target="_blank" rel="noopener" style="flex:1;text-align:center;padding:7px;border:1px solid var(--line);border-radius:6px;font-size:12.5px;font-weight:700;color:var(--navy);text-decoration:none">🌐 صفحة البلد ومناطقه</a></div>
+      <div class="acts"><a href="${GF+c[0]}-latest.osm.pbf" download target="_blank" rel="noopener" style="flex:1;text-align:center;padding:9px;border-radius:6px;font-size:13px;font-weight:700;text-decoration:none;display:block;background:var(--gold);color:#fff">1️⃣ ⬇️ تنزيل ملف الخريطة على الهاتف</a></div>
+      <div class="acts"><button class="go" id="cFile" style="padding:9px;font-size:13px">2️⃣ 📂 فهرسة الخريطة المحملة داخل التطبيق</button></div>
+      <div class="s" style="margin-top:6px">بعد اكتمال التنزيل، اضغط الزر 2 واختر الملف من مجلد التنزيلات (Download).${have?' لتحديث الخريطة أعد الخطوتين.':''}</div>
+      <div class="acts"><a href="${GF+c[0]}.html" target="_blank" rel="noopener" style="flex:1;text-align:center;padding:9px;border-radius:6px;font-size:13px;font-weight:700;text-decoration:none;display:block;border:1px solid var(--line);color:var(--navy);font-size:12.5px">🌐 صفحة البلد ومناطقه في Geofabrik</a></div>
       <input type="file" id="cIn" accept=".pbf,.osm.pbf,application/octet-stream" style="display:none"></div>
       ${c[3]?`<div class="item"><div class="t">🛣️ الطرق الرئيسية فقط (بديل خفيف)</div><div class="s">الطرق السيارة والوطنية والجهوية وأسماء المدن والقرى، للتنقل بين المدن. يُحمَّل على أجزاء ويمكن إكماله لاحقًا.${ovp[ok]?' — '+ovp[ok]+' جزء محمّل':''}</div>
       <div class="acts"><button class="go" id="cNat">⬇️ ${ovp[ok]?'إكمال / تحديث':'تحميل'}</button></div></div>`:''}
       ${tn?`<div class="item"><div class="t">🏘️ تونس: كل الشوارع حسب الولاية</div><select id="tGov" style="margin-top:8px">${GOVS.map(g=>`<option value="${g[0]}">ولاية ${g[1]}</option>`).join('')}<option value="ALL">كل الولايات الـ 24</option></select><div class="acts"><button class="go" id="tGovGo">⬇️ تحميل الولاية</button></div></div>`:''}`;
-    $('cNet').onclick=()=>{if(!need())return;if(c[2]>400&&!confirm('ملف '+c[1]+' كبير جدًا ('+fmtMB(c[2])+') وقد يفشل على الهاتف. الأفضل استعمال «الطرق الرئيسية فقط» أو ملف منطقة أصغر. هل تريد المحاولة رغم ذلك؟'))return;
-      runImport(async()=>{try{return await fetchPBF(tmsg,tbar,GF+c[0]+'-latest.osm.pbf');}catch(e){throw new Error('تعذّر تحميل الملف من داخل التطبيق ('+(e.message||e)+'). اضغط «تنزيل الملف بالمتصفح» ثم «الملف على هاتفي».');}},cc,c[1],tmsg,tbar).then(()=>dlSheet(null,c[0]));};
-    $('cFile').onclick=()=>$('cIn').click();$('cIn').onchange=e=>{const f=e.target.files&&e.target.files[0];if(f)runImport(async()=>f,cc,c[1],tmsg,tbar).then(()=>dlSheet(null,c[0]));};
+    $('cFile').onclick=()=>$('cIn').click();$('cIn').onchange=e=>{const f=e.target.files&&e.target.files[0];if(f&&c[2]>400&&!confirm('ملف '+c[1]+' كبير جدًا ('+fmtMB(c[2])+') وقد تفشل فهرسته على الهاتف. متابعة؟'))return;if(f)runImport(async()=>f,cc,c[1],tmsg,tbar).then(()=>dlSheet(null,c[0]));};
     if($('cNat'))$('cNat').onclick=async()=>{if(!need())return;let cells;try{cells=await countryCells(c,tmsg);}catch(e){tmsg('❌ '+e.message);return;}
       if(cells.length>150&&!confirm('هذا البلد كبير ('+cells.length+' جزءًا). قد يستغرق التحميل وقتًا طويلًا. متابعة؟'))return;
       await runDownload(cells,'nat',null,tmsg,tbar,{iso:c[3],name:c[1],cc:ok});dlSheet(null,c[0]);};
@@ -971,8 +970,6 @@ function dlSheet(dest,cSel){const regs=S.regions.map((r,i)=>({r,i})).filter(x=>!
   $('cSel').onchange=card;card();
   $('tStop').onclick=()=>{if(DL){DL.stop=true;tmsg('جارٍ الإيقاف بعد الجزء الحالي…');}else toast('لا يوجد تحميل جارٍ');};
   const uName=()=>$('uName').value.trim()||'خريطة '+(Object.keys(maps).length+1);const uCC=()=>'u_'+normQ(uName()).replace(/\s+/g,'_').slice(0,30);
-  $('uGo').onclick=()=>{const url=$('uUrl').value.trim();if(!/^https?:\/\/.+\.pbf$/i.test(url))return toast('الصق رابط ملف ينتهي بـ .osm.pbf');if(!need())return;
-    runImport(()=>fetchPBF(tmsg,tbar,url),uCC(),uName(),tmsg,tbar).then(()=>dlSheet());};
   $('uFile').onclick=()=>$('uIn').click();$('uIn').onchange=e=>{const f=e.target.files&&e.target.files[0];if(!f)return;if(!$('uName').value.trim())$('uName').value=f.name.replace(/-latest\.osm\.pbf$|\.osm\.pbf$|\.pbf$/i,'');runImport(async()=>f,uCC(),uName(),tmsg,tbar).then(()=>dlSheet());};
   const bbox=()=>{const v=$('dC').value,r=+$('dR').value;let pts;
     if(v==='me'){if(!S.pos)return null;pts=[S.pos];}else if(v==='view')pts=[{lat:S.view.lat,lon:S.view.lon}];else if(v==='dest'){if(!S.pos)return null;pts=[S.pos,dest];}else{if(!S.pos)return null;pts=[S.pos,S.places[+v.slice(1)]];}
@@ -1022,7 +1019,7 @@ function settingsSheet(){openSheet(`<h2>⚙️ الإعدادات</h2>
   $('sIm').onclick=()=>{const t=prompt('الصق النص المنسوخ هنا');if(!t)return;try{const a=JSON.parse(t);if(Array.isArray(a)){a.forEach(addPlace);toast('تم الاستيراد');closeSheet();reqDraw();}}catch(e){toast('النص غير صالح');}};
   $('sClr').onclick=async()=>{if(confirm('حذف كل صور الخريطة؟')){await idbClear('t');mem.clear();toast('تم الحذف');reqDraw();}};}
 function helpSheet(){openSheet(`<h2>🧭 دليلي — طريقة الاستعمال</h2><div class="help">
-  <h3>1. حمّل الخريطة مرة واحدة (بالإنترنت)</h3>اضغط «تحميل الخرائط» ثم «📦 خريطة تونس الكاملة من ملف واحد». يحمّل التطبيق ملف تونس كاملًا ويعالجه على الهاتف. يمكنك بدلًا من ذلك التحميل على أجزاء: الطرق الرئيسية، أو ولاية، أو منطقة صغيرة حولك. يحفظ التطبيق على الهاتف كل الشوارع وأسماءها واتجاهات السير والدوّارات وأسماء الأماكن، مثل الصيدليات والمساجد والمدارس.
+  <h3>1. حمّل الخريطة مرة واحدة (بالإنترنت)</h3>اضغط «تحميل الخرائط» واختر البلد، ثم «تنزيل ملف الخريطة على الهاتف»، وبعد اكتمال التنزيل «فهرسة الخريطة المحملة داخل التطبيق» واختر الملف من مجلد التنزيلات. يمكنك بدلًا من ذلك التحميل على أجزاء: الطرق الرئيسية، أو ولاية، أو منطقة صغيرة حولك. يحفظ التطبيق على الهاتف كل الشوارع وأسماءها واتجاهات السير والدوّارات وأسماء الأماكن، مثل الصيدليات والمساجد والمدارس.
   <h3>2. اختر وجهتك (بدون إنترنت)</h3>اضغط «إلى أين؟» وابحث عن شارع أو مكان بالاسم، أو أدخل الإحداثيات، أو اختر النقطة على الخريطة.
   <h3>3. اختر المسار</h3>يقترح التطبيق حتى 3 مسارات، الأسرع أولًا، ويعرض لكل مسار الوقت والمسافة والشوارع الرئيسية التي يمرّ منها.
   <h3>4. التوجيه شارعًا بشارع</h3>يعرض التطبيق المنعطف القادم واسم الشارع الذي ستدخله، ويقرأ التعليمات بصوت عربي، مثلًا «بعد 300 متر انعطف إلى اليمين إلى شارع …» و«عند الدوّار خذ المخرج الثاني». إذا سلكت طريقًا مختلفًا أو سرت في الاتجاه المعاكس، يحسب مسارًا جديدًا من مكانك مباشرة.
